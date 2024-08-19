@@ -26,7 +26,7 @@ You can run the tool in two primary ways:
 Run the script directly with the following command:
 
 ```bash
-./SlurmReport.sh -u <user> -s <start_date> -e <end_date> -a <accounts>
+./SlurmReport.sh -u <user> -s <start_date> -e <end_date> -a <accounts> -all <all_info>
 ```
 - **`-u <user>`** : User(s) to filer by. Filter for multiple users by inputting comma separated values. 
 If omitted, data for all users will be included. 
@@ -37,7 +37,9 @@ If omitted, data for all users will be included.
 
 - **`-a <accounts>`** : Account(s) to filter by. Include multiple accounts by inputting comma separated values. If omitted, default will be `cedar,cedar2`. 
 
-For example, to summarize data for user chaoe from 2024-07-01 to 2024-07-10 for accounts cedar and cedar2:
+- **`-all <all_info>`** : Shows all information (individual user plots and full tables). Accepts TRUE or FALSE. If omitted, default will be `TRUE`. 
+
+For example, to summarize and see all information for user chaoe from 2024-07-01 to 2024-07-10 for accounts cedar and cedar2:
 
 ```bash
 ./SlurmReport.sh -u chaoe -s 2024-07-01 -e 2024-07-10
@@ -55,10 +57,13 @@ If you have a file already generated from `sacct`, you can input the file direct
 For example, an acceptable file would be generated like this : 
 
 ```bash 
-sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw,SubmitLine --parsable2 -a -A cedar,cedar2 --starttime=2024-07-01 --endtime=2024-07-10 -u chaoe
+sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A cedar,cedar2 --starttime=2023-07-01 --endtime=2024-06-30 > data.txt
 ```
 
 You cannot use both methods at the same time. If you provide both a file and other parameters into the tool, the tool will ignore your extra parameters and use only the file. 
+
+
+* This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods.
 
 #### Running on Exacloud Compute Node
 
@@ -81,6 +86,11 @@ This will appear in the terminal when execute permissions have not been allowed.
 ```bash 
 chmod 755 SlurmReport.sh 
 ```
+
+#### Report is Taking Too Long to Load 
+If the report is taking too long to load, you can use `-all FALSE` to get a faster report. 
+Requesting to look at a lot of data will mean a longer wait time for all information to be loaded. 
+This will usually only come up if you are looking for FY reports for all users. 
 
 
 ### Additional Information 

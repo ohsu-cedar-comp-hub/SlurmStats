@@ -25,29 +25,28 @@ START=""
 END=""
 FILE=""
 ACCT="cedar,cedar2"
+ALL="TRUE"
 
-while getopts ":f:u:s:e:" opt; 
-do
-  case ${opt} in
-    f )
-      FILE=$OPTARG;;
-    u )
-      USER=$OPTARG;;
-    s )
-      START=$OPTARG;;
-    e )
-      END=$OPTARG;;
-    a )
-      ACCT=$OPTARG;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -f) FILE="$2"; shift 2;;
+    -u) USER="$2"; shift 2;;
+    -s) START="$2"; shift 2;;
+    -e) END="$2"; shift 2;;
+    -a) ACCT="$2"; shift 2;;
+    -all) ALL="$2"; shift 2;;
+    --) shift; break;;
+    *) echo "Unknown option: $1" >&2; exit 1;;
   esac
 done
-shift $((OPTIND -1))
 
-echo "$FILE" 
-echo "$USER" 
-echo "$START"
-echo "$END"  
-echo "$ACCT"  
+
+echo "File: $FILE" 
+echo "User: $USER" 
+echo "Start: $START"
+echo "End: $END"  
+echo "Acct: $ACCT"  
+echo "All: $ALL"
 
 # Run the RMarkdown file with parameters
-Rscript -e "rmarkdown::render('SlurmJobAssessment.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', account = '$ACCT'))"
+Rscript -e "rmarkdown::render('SlurmJobAssessment.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', account = '$ACCT', all = '$ALL'))"

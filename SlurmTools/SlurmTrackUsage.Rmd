@@ -1,0 +1,516 @@
+---
+title: "SlurmTrackUsage"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+date: "`r Sys.Date()`"
+params: 
+  user: NA
+  account: cedar,cedar2
+  start: NA
+  end: NA
+  file: fy23_08.19.txt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r message=FALSE}
+library(data.table, quietly = TRUE)
+library(stringr)
+library(tidyverse)
+library(knitr)
+library(scales)
+```
+
+# Retrieving Data 
+
+```{r}
+unlockBinding("params", env = .GlobalEnv)
+
+params <- lapply(params, function(x) { if (x == 'NA' | x == '') NA else x })
+
+file <- params$file
+user <- params$user 
+start <- params$start 
+end <- params$end
+account <- params$account
+output_file <- paste0("clean", file)
+
+if (!is.na(file)){
+  print("Using file provided..")
+  lines <- readLines(file)
+  writeLines(lines[nzchar(trimws(lines))], output_file)
+  data <- fread(output_file)
+} else {
+
+  print("Pulling sacct data..")
+  # if end is NA -> use today's date 
+  if (is.na(end)){ 
+     end <- Sys.Date()}   
+  # if start is also NA -> use past year from today
+  
+  if (is.na(start)){
+    start <- as.character(as.Date(end) - 365 ) }
+  
+  
+  
+  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
+  
+  
+   if (!is.na(user)){ 
+    sacct_command <- paste(sacct_command, sprintf("-u %s", user))
+  }
+  
+  temp_file <- tempfile()
+  system(paste(sacct_command, ">", temp_file), wait = TRUE)
+  data <- fread(temp_file)
+  
+  print(sacct_command)
+} 
+
+
+
+print(sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s", file, user, account, start, end)) 
+
+```
+
+```{r}
+if (nrow(data) == 0){ 
+  print("Data retrieved is empty! Review sacct command or your inputted file. ")
+  knit_exit()
+}
+
+
+```
+
+
+
+
+```{r}
+# Calculate time in seconds - brute force function
+calcSeconds <- function(slurmTime) {
+  fun.dt <- data.table(dtime = slurmTime)
+  mytimecols <- c("dd", "hh", "mm", "ss")
+  # Split out days, hours, minutes, and seconds
+  try(fun.dt[grepl("-", dtime),
+             c("dd", "hh", "mm", "ss") := tstrsplit(dtime, "[-:]")], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 2,
+             c("dd", "hh", "mm", "ss") := c(0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 1,
+             c("dd", "hh", "mm", "ss") := c(0, 0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  
+  # Convert from chr to num as available
+  myfuntime <- mytimecols[mytimecols %in% colnames(fun.dt)]
+  fun.dt[, (myfuntime) := lapply(.SD, as.numeric), .SDcols = myfuntime]
+  
+  # Calculate total time in seconds
+  fun.dt[, dtimeSec := dd*24*60*60 + hh*60*60 + mm*60 + ss]
+  return(fun.dt$dtimeSec)
+}
+```
+
+
+
+```{r warnings = FALSE}
+# Split out jobs & subjobs for convenience
+data[, c("JobID", "SubJob") := tstrsplit(JobIDRaw, "\\.")]
+
+# Convert memory to numeric
+units <- "G"
+for (mycol in c("ReqMem", "MaxRSS", "MaxVMSize", "MaxDiskRead", "MaxDiskWrite")) {
+  newcol <- paste(mycol, units, sep = "")
+  data[!(get(mycol) %in% c("", "0")), (newcol) := as.numeric(gsub(units, "", get(mycol)))]
+}
+
+# Converting TotalCPU and CPUTime to seconds for efficiency calcs 
+data[, TotalCPUSec := calcSeconds(TotalCPU)]
+data[, CPUTimeSec := calcSeconds(CPUTime)]
+
+```
+
+
+```{r}
+
+colnames.both <- c("Submit")
+colnames.job <- c("JobName", "User", "State", "Group", "Account", "Submit", "Start", "End", "Cluster",
+                  "Partition", "AllocTRES", "ReqCPUS", "TotalCPU", "CPUTime", "UserCPU", "SystemCPU","Elapsed", "Timelimit", "ReqMem", "CPUTimeRAW", "ElapsedRaw", "TimelimitRaw",
+                   "TotalCPUSec", "CPUTimeSec", "ReqMemG", "JobID")
+
+colnames.batch <- c("JobIDRaw", "Submit", "AllocNodes",
+                    "AllocCPUS", "AveCPU", "MaxRSS", "MaxVMSize", "MaxDiskWrite", "MaxDiskWriteG",
+                    "MaxDiskRead", "MaxDiskReadG", "MaxRSSG", "MaxVMSizeG", "JobID", "SubJob")
+
+# Split out Job and Batch
+batch.dt <- data[grepl("batch", SubJob), mget(colnames.batch)]
+colnames(batch.dt)[colnames(batch.dt) %in% colnames.both] <-
+  paste(colnames(batch.dt)[colnames(batch.dt) %in% colnames.both], "batch", sep = ".")
+
+job.dt <- data[is.na(SubJob), mget(colnames.job)]
+colnames(job.dt)[colnames(job.dt) %in% colnames.both] <-
+  paste(colnames(job.dt)[colnames(job.dt) %in% colnames.both], "job", sep = ".")
+
+# merge batch & job
+cpu_only <- merge(x = job.dt, y = batch.dt, by = "JobID",
+                  all.x = TRUE, all.y = FALSE, suffixes = c(".job", ".batch"))
+# Calculate Efficiencies + Delay
+cpu_only[, ':=' (CPUEff = TotalCPUSec/CPUTimeSec*100,
+                 MemEff = MaxVMSizeG/ReqMemG*100, 
+                 TimeEff = ElapsedRaw/(TimelimitRaw * 60) * 100, 
+                 Start = str_replace(Start, "T", " "), 
+                 End = str_replace(End, "T", " "))]
+
+cpu_only[, ':=' (Start = as.POSIXct(Start, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"), 
+                 End = as.POSIXct(End, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))]
+
+cpu_only$Delay <- as.numeric(cpu_only$Start - cpu_only$Submit.job, units = 'secs')
+
+cpu_only <- cpu_only %>% 
+  mutate(State = if_else(str_detect(State, 'CANCELLED'), 'CANCELLED', State))
+
+gpu_only <- cpu_only %>% 
+  filter(Partition == 'gpu') %>% 
+  mutate(ReqGPUS = as.numeric(str_extract(AllocTRES, "(?<=gpu=).*?(?=,|$)"))) %>%  
+  mutate(GPUTimeSec = CPUTimeSec/ReqCPUS * ReqGPUS) 
+
+total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTimeSec) , by = "JobID", all.x = TRUE, all.y = FALSE)
+
+
+
+```
+
+```{r}
+print(paste0("Number of Jobs : ",nrow(total.dt)))
+```
+
+```{r}
+
+days_range <- as.numeric(max(total.dt$Start, na.rm = TRUE) - min(total.dt$Start, na.rm = TRUE), unit = 'days') 
+  
+total.dt <- total.dt %>%  
+  drop_na(End) %>%  
+  mutate(End = as.Date(End)) %>% 
+  mutate(Week = as.Date(cut.Date(End, breaks = '1 week')))
+
+total.dt <- as.data.frame(complete(total.dt,Week,User,fill=list(CPUTimeSec = 0, GPUTimeSec = 0)))
+
+total.dt <- total.dt %>% 
+  group_by(Week, User, Account) %>%  
+  summarise(CPUTimeHr = sum(CPUTimeSec / 3600 , na.rm = TRUE), GPUTimeHr = sum(GPUTimeSec / 3600, na.rm = TRUE)) 
+
+  
+  
+```
+
+
+## Track Usage {.tabset}
+
+CPU and GPU Usage is tracked using several plots: 
+- All Data
+- All by Top 8 Users 
+- All by Account 
+
+Budget is indicated by the dashed, gray line in the all data plots.
+
+<style>
+  .superbigimage{
+      overflow-y:auto;
+      overflow-x:auto;
+      white-space: nowrap;
+  }
+
+  .superbigimage img{
+     max-width: none;
+     max-height: none;
+  }
+
+
+</style>
+
+
+
+```{r}
+
+cumul_budget <- days_range / 365 * 12
+budget <- data.frame(Week = unique(total.dt$Week), CPUTimeHr = rep(165000, length(unique(total.dt$Week))), GPUTimeHr = rep(1500, length(unique(total.dt$Week))))
+
+budget <- budget %>% 
+  mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>% 
+  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr))
+```
+
+
+```{r}
+make_plot <- function(data, type, color){
+  if (is.na(color)) { 
+    color <- NULL 
+  }
+
+  
+  if (type == 'CPU'){
+  p1 <- ggplot(data = data, aes_string(x = 'Week', y = 'CPUTimeHr', color = color)) +
+        geom_line(size = 1.5) + 
+        theme_minimal() + 
+        theme(panel.background = element_blank(), 
+              legend.title = element_blank(), 
+              plot.title = element_text(size = 15, face = 'bold'), 
+              axis.line = element_line(colour = 'black'), 
+              axis.text = element_text(size = 12), 
+              axis.title = element_text(size = 10, face = 'bold'))   +
+         ylab("CPU Time (Hours)") + xlab("") +
+        coord_cartesian(clip = 'off') + 
+          scale_color_brewer(palette = "Set1") + 
+          scale_y_continuous(labels = label_comma()) + 
+    ggtitle(paste0("Total CPU Hours: ", round(sum(data$CPUTimeHr, na.rm = TRUE), 2)), 
+            subtitle = '6000 CPU Hrs = 1 Compute Unit = $150 | Budget = 165000 hrs / week')
+  
+  
+  p2 <- ggplot(data = data, aes_string(x = 'Week', y = 'CumulCPUTimeHr', color = color)) +
+        geom_line(size = 1.5)+ 
+        theme_minimal() + 
+        theme(panel.background = element_blank(), 
+              legend.title = element_blank(), 
+              plot.title = element_text(size = 15, face = 'bold'), 
+              axis.line = element_line(colour = 'black'), 
+              axis.text = element_text(size = 12), 
+              axis.title = element_text(size = 10, face = 'bold'))   +
+         ylab("CPU Time (Hours)") + xlab("") +
+        coord_cartesian(clip = 'off') + 
+          scale_color_brewer(palette = "Set1")  + 
+          scale_y_continuous(labels = label_comma()) + 
+    ggtitle(paste0("Total CPU Hours: ", round(sum(data$CPUTimeHr, na.rm = TRUE), 2)), subtitle = paste0('Cumultative Usage | 6000 CPU Hrs = 1 Compute Unit = $150 | Budget = ', unique(budget$CumulCPUTimeHr), ' total hrs'))
+  
+  
+  }
+  
+  else {
+    p1 <- ggplot(data = data, aes_string(x = 'Week', y = 'GPUTimeHr', color = color)) +
+      geom_line(size = 1.5)+
+      theme_minimal() + 
+      theme(panel.background = element_blank(), 
+            legend.title = element_blank(), 
+            plot.title = element_text(size = 15, face = 'bold'), 
+            axis.line = element_line(colour = 'black'), 
+            axis.text = element_text(size = 12), 
+            axis.title = element_text(size = 10, face = 'bold'))   +
+       ylab("GPU Time (Hours)") + xlab("") +
+      coord_cartesian(clip = 'off') + 
+         scale_color_brewer(palette = "Set1")  + 
+        scale_y_continuous(labels = label_comma()) + 
+  ggtitle(paste0("Total GPU Hours: ", round(sum(data$GPUTimeHr, na.rm = TRUE), 2)), 
+          subtitle = '600 GPU Hrs = 1 Compute Unit = $150 | Budget = 1500 hrs / week')
+      
+      
+      p2 <- ggplot(data = data, aes_string(x = 'Week', y = 'CumulGPUTimeHr', color = color)) +
+      geom_line(size = 1.5)+ 
+      theme_minimal() + 
+      theme(panel.background = element_blank(), 
+            legend.title = element_blank(), 
+            plot.title = element_text(size = 15, face = 'bold'), 
+            axis.line = element_line(colour = 'black'), 
+            axis.text = element_text(size = 12), 
+            axis.title = element_text(size = 10, face = 'bold'))   +
+       ylab("GPU Time (Hours)") + xlab("")+
+      coord_cartesian(clip = 'off') + 
+         scale_color_brewer(palette = "Set1")  + 
+        scale_y_continuous(labels = label_comma(), limits = c(0, max(data$CumulGPUTimeHr))) + 
+  ggtitle(paste0("Total GPU Hours: ", round(sum(data$GPUTimeHr, na.rm = TRUE), 2)), subtitle = paste0('Cumultative Usage | 600 GPU Hrs = 1 Compute Unit = $150 | Budget = ', unique(budget$CumulGPUTimeHr), ' total hrs'))
+    }
+  
+  if (is.null(color)){ 
+      p1 <- p1 + geom_line(data = budget, color = '#636363', size = 1.5, linetype = 'dashed')
+      p2 <- p2 + geom_line(data = budget, color = '#636363', size = 1.5, linetype = 'dashed')
+      }
+  
+  if (days_range > 50){
+    p1 <- p1 + scale_x_date(labels = date_format('%b %Y'), date_breaks = '1 month' )  
+    p2 <- p2 + scale_x_date(labels = date_format('%b %Y'), date_breaks = '1 month' ) 
+    cat('\n') } 
+     
+    else { 
+    p1 <- p1 + scale_x_date(labels = date_format('%b %d %Y'))
+    p2 <- p2 + scale_x_date(labels = date_format('%b %d %Y'))
+    cat('\n')
+    }
+  
+  
+  
+  return(list(p1, p2))
+  
+}
+```
+
+
+```{r, results = 'asis', fig.width = 15, fig.height = 8}
+
+main_tabs <- c('All Data', 'All by User - Top 8', 'All by Account')
+
+sub_tabs <- c('CPU', 'GPU') 
+
+for(x in main_tabs) {
+
+  cat('\n')
+
+  cat('###', x, '{.tabset}   \n')
+
+  cat('\n')
+  
+  if (x == 'All by User - Top 8'){ 
+    data <- total.dt %>%  group_by(Week, User) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>%  group_by(User) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
+    data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, User = unique(data$User),  CumulCPUTimeHr = 0, CumulGPUTimeHr = 0, CPUTimeHr = NA, GPUTimeHr = NA)))
+    
+    data <- data %>%  
+      mutate(CPUTotal = sum(CPUTimeHr, na.rm = TRUE)) %>% 
+      mutate(GPUTotal = sum(GPUTimeHr, na.rm = TRUE))
+    
+    for (y in sub_tabs){ 
+     cat('\n')
+
+     cat('#### ', y, '   \n')
+
+     cat('\n')
+    
+      if (y == 'CPU'){ 
+        data <- data %>%  filter(CPUTotal !=0) %>% arrange(desc(CPUTotal)) 
+        top_8 <- unique((data %>%  filter(CPUTotal !=0) %>% arrange(desc(CPUTotal)) )$User)[1:8] 
+    
+       userCPU <- make_plot(data %>% filter(User %in% top_8), y, 'User') 
+       print(userCPU[[1]])
+       print(userCPU[[2]])
+        cat('\n') }
+       
+        
+    else { 
+      data <- data %>%  filter(GPUTotal !=0) %>% arrange(desc(GPUTotal)) 
+      top_8 <- unique((data %>%  filter(GPUTotal !=0) %>% arrange(desc(GPUTotal)) )$User)[1:8] 
+      
+      userGPU <- make_plot(data %>% filter(User %in% top_8), y, 'User') 
+      
+      print(userGPU[[1]])
+    
+      print(userGPU[[2]])
+     
+      cat('\n') }
+
+ 
+    } 
+    
+  }
+  
+  
+else { 
+    
+    if (x == 'All by Account'){
+   data <- total.dt %>%  group_by(Week, Account) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) 
+   
+   data <- merge(data, expand.grid(Week = unique(data$Week), Account =unique(data$Account)[!is.na(unique(data$Account))]), by = c('Week', 'Account'), all.y = TRUE)
+   
+   data <- data %>% replace(is.na(.), 0) %>% group_by(Account) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
+   
+   data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, Account = unique(data$Account[!is.na(data$Account)], na.rm = TRUE), CumulCPUTimeHr = 0, CumulGPUTimeHr = 0, CPUTimeHr = NA, GPUTimeHr = NA)))
+   
+   data <- data %>% 
+     mutate(GPUTotal = sum(GPUTimeHr, na.rm = TRUE)) %>% 
+     mutate(CPUTotal = sum(CPUTimeHr, na.rm = TRUE))
+  
+ }
+  
+ else { 
+   data <- total.dt %>%  group_by(Week) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
+   
+   data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, CumulCPUTimeHr = 0, CumulGPUTimeHr = 0, CPUTimeHr = NA, GPUTimeHr = NA)))
+   
+   data <- data %>% 
+     mutate(GPUTotal = sum(GPUTimeHr, na.rm = TRUE)) %>% 
+     mutate(CPUTotal = sum(CPUTimeHr, na.rm = TRUE))
+   
+ }
+    
+    for(y in sub_tabs) {
+   
+    cat('\n')
+
+    cat('#### ', y, '   \n')
+
+    cat('\n')
+    
+    if (y == 'CPU'){ 
+        data <- data %>% filter(CPUTotal !=0)
+        
+        if (x == 'All by Account'){
+          accCPU <- make_plot(data, 'CPU', 'Account')
+          
+          print(accCPU[[1]])
+          
+          print(accCPU[[2]])
+          
+       cat('\n')
+      } 
+          
+        
+        else { 
+          allCPU <- make_plot(data, 'CPU', NA)
+          
+          print(allCPU[[1]]) 
+       
+
+          print(allCPU[[2]])
+      
+          cat('\n')
+          
+        }
+        
+    
+    }
+  
+      
+    
+    else { 
+      data <- data %>%  filter(GPUTotal !=0)
+      
+      if (x == 'All by Account'){
+       accGPU <- make_plot(data, 'GPU', 'Account')
+
+          print(accGPU[[1]])
+     
+          print(accGPU[[2]])
+          
+       cat('\n')
+        }
+        
+        
+        else { 
+          allGPU <- make_plot(data, 'GPU', NA)
+  
+          print(allGPU[[1]]) 
+       
+          print(allGPU[[2]])
+       
+          cat('\n')
+      
+    }
+      
+           
+      
+      
+    }
+    
+    }
+    
+  }
+  
+  
+}
+
+
+    
+    
+        
+    
+    
+ 
+  
+  
+```

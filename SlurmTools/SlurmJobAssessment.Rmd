@@ -11,7 +11,7 @@ params:
   start: NA
   end: NA
   file: NA
-  all: 'TRUE'
+  all: 'TRUE' 
 ---
 
 ```{r setup, include=FALSE}
@@ -182,6 +182,10 @@ gpu_only <- cpu_only %>%
 
 total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTimeSec, GPUTimeHr, GPUCompUnits, GPUCost) , by = "JobID", all.x = TRUE, all.y = FALSE)
 
+print(paste0('Total # of Jobs: ', nrow(total.dt)))
+print(paste0('Total CPU Cost: $', round(sum(total.dt$CPUCost, na.rm = TRUE), 2)))
+print(paste0('Total GPU Cost: $', round(sum(total.dt$GPUCost, na.rm = TRUE), 2)))
+
 
 
 ```
@@ -190,7 +194,7 @@ total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTime
 
 ### Summary by State and User
 ```{r}
-print(paste0('Total # of Jobs: ', nrow(total.dt)))
+
 
 # summarize by state 
 

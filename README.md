@@ -83,7 +83,7 @@ sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,
 
 You cannot use both methods at the same time for either tool. If you provide both a file and other parameters into the tool, the tool will ignore your extra parameters and use only the file. 
 
-* This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods.
+* This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods for the **SlurmJobAssessment** tool.
 
 #### Running on Exacloud Compute Node
 

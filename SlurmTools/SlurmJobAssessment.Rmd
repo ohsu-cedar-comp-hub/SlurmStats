@@ -1,0 +1,401 @@
+---
+title: "Slurm Job Assessment"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+date: "`r Sys.Date()`"
+params:
+  user: NA
+  account: cedar,cedar2
+  start: NA
+  end: NA
+  file: NA
+  all: 'TRUE'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+```{r message=FALSE}
+library(data.table, quietly = TRUE)
+library(stringr)
+library(tidyverse)
+library(knitr)
+library(DT)
+```
+
+## Retrieve Data 
+First, checks if file exists. If file doesn't exist, sacct command will be ran. 
+
+
+```{r}
+unlockBinding("params", env = .GlobalEnv)
+
+params <- lapply(params, function(x) { if (x == 'NA' | x == '') NA else x })
+
+file <- params$file 
+user <- params$user 
+start <- params$start 
+end <- params$end
+account <- params$account
+all <- params$all
+output_file <- paste0("clean", file)
+
+if (!is.na(file)){
+  print("Using file provided..")
+  lines <- readLines(file)
+  writeLines(lines[nzchar(trimws(lines))], output_file)
+  data <- fread(output_file)
+} else { 
+  print("Pulling sacct data..")
+  # if end is NA -> use today's date 
+  if (is.na(end)){ 
+     end <- Sys.Date()}   
+  # if start is also NA -> use past week from today 
+  
+  if (is.na(start)){
+    start <- as.character(as.Date(end) - 7 ) }
+  
+
+  
+  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
+
+  
+   if (!is.na(user)){ 
+    sacct_command <- paste(sacct_command, sprintf("-u %s", user))
+  }
+  
+  temp_file <- tempfile()
+  system(paste(sacct_command, ">", temp_file), wait = TRUE)
+  data <- fread(temp_file)
+  
+  print(sacct_command)
+  
+
+}
+
+print(sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s, all: %s", file, user, account, start, end, all)) 
+
+```
+```{r}
+if (nrow(data) == 0){ 
+  print("Data retrieved is empty! Review sacct command or your inputted file. ")
+  knit_exit()
+  }
+```
+
+```{r}
+# Calculate time in seconds - brute force function
+calcSeconds <- function(slurmTime) {
+  fun.dt <- data.table(dtime = slurmTime)
+  mytimecols <- c("dd", "hh", "mm", "ss")
+  # Split out days, hours, minutes, and seconds
+  try(fun.dt[grepl("-", dtime),
+             c("dd", "hh", "mm", "ss") := tstrsplit(dtime, "[-:]")], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 2,
+             c("dd", "hh", "mm", "ss") := c(0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 1,
+             c("dd", "hh", "mm", "ss") := c(0, 0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  
+  # Convert from chr to num as available
+  myfuntime <- mytimecols[mytimecols %in% colnames(fun.dt)]
+  fun.dt[, (myfuntime) := lapply(.SD, as.numeric), .SDcols = myfuntime]
+  
+  # Calculate total time in seconds
+  fun.dt[, dtimeSec := dd*24*60*60 + hh*60*60 + mm*60 + ss]
+  return(fun.dt$dtimeSec)
+}
+```
+
+
+
+```{r warnings = FALSE}
+# Split out jobs & subjobs for convenience
+data[, c("JobID", "SubJob") := tstrsplit(JobIDRaw, "\\.")]
+
+# Convert memory to numeric
+units <- "G"
+for (mycol in c("ReqMem", "MaxRSS", "MaxVMSize", "MaxDiskRead", "MaxDiskWrite")) {
+  newcol <- paste(mycol, units, sep = "")
+  data[!(get(mycol) %in% c("", "0")), (newcol) := as.numeric(gsub(units, "", get(mycol)))]
+}
+
+# Converting TotalCPU and CPUTime to seconds for efficiency calcs 
+data[, TotalCPUSec := calcSeconds(TotalCPU)]
+data[, CPUTimeSec := calcSeconds(CPUTime)]
+
+```
+
+
+```{r}
+
+colnames.both <- c("Submit")
+colnames.job <- c("JobName", "User", "State", "Group", "Account", "Submit", "Start", "End", "Cluster",
+                  "Partition", "AllocTRES", "ReqCPUS", "TotalCPU", "CPUTime", "UserCPU", "SystemCPU","Elapsed", "Timelimit", "ReqMem", "CPUTimeRAW", "ElapsedRaw", "TimelimitRaw",
+                  "TotalCPUSec", "CPUTimeSec", "ReqMemG", "JobID")
+
+colnames.batch <- c("JobIDRaw", "Submit", "AllocNodes",
+                    "AllocCPUS", "AveCPU", "MaxRSS", "MaxVMSize", "MaxDiskWrite", "MaxDiskWriteG",
+                    "MaxDiskRead", "MaxDiskReadG", "MaxRSSG", "MaxVMSizeG", "JobID", "SubJob")
+
+# Split out Job and Batch
+batch.dt <- data[grepl("batch", SubJob), mget(colnames.batch)]
+colnames(batch.dt)[colnames(batch.dt) %in% colnames.both] <-
+  paste(colnames(batch.dt)[colnames(batch.dt) %in% colnames.both], "batch", sep = ".")
+
+job.dt <- data[is.na(SubJob), mget(colnames.job)]
+colnames(job.dt)[colnames(job.dt) %in% colnames.both] <-
+  paste(colnames(job.dt)[colnames(job.dt) %in% colnames.both], "job", sep = ".")
+
+# merge batch & job
+cpu_only <- merge(x = job.dt, y = batch.dt, by = "JobID",
+                  all.x = TRUE, all.y = FALSE, suffixes = c(".job", ".batch"))
+# Calculate Efficiencies + Delay
+cpu_only[, ':=' (CPUEff = round(TotalCPUSec/CPUTimeSec*100, 2),
+                 MemEff = round(MaxVMSizeG/ReqMemG*100, 2), 
+                 TimeEff = round(ElapsedRaw/(TimelimitRaw * 60) * 100, 2), 
+                 Start = str_replace(Start, "T", " "), 
+                 End = str_replace(End, "T", " "))]
+
+cpu_only[, ':=' (Start = as.POSIXct(Start, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"), 
+                 End = as.POSIXct(End, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))]
+
+cpu_only$Delay <- as.numeric(cpu_only$Start - cpu_only$Submit.job, units = 'secs')
+
+cpu_only <- cpu_only %>% 
+  mutate(CPUTimeHr =  CPUTimeSec / 3600) %>% 
+  mutate(CPUCompUnits = CPUTimeHr / 6000) %>%  
+  mutate(CPUCost = CPUCompUnits * 150)
+
+cpu_only <- cpu_only %>% 
+  mutate(State = if_else(str_detect(State, 'CANCELLED'), 'CANCELLED', State))
+
+gpu_only <- cpu_only %>% 
+  filter(Partition == 'gpu') %>% 
+  mutate(ReqGPUS = as.numeric(str_extract(AllocTRES, "(?<=gpu=).*?(?=,|$)"))) %>%  
+  mutate(GPUTimeSec = CPUTimeSec/ReqCPUS * ReqGPUS) %>%  
+  mutate(GPUTimeHr = GPUTimeSec/3600) %>% 
+  mutate(GPUCompUnits = GPUTimeHr / 600) %>%  
+  mutate(GPUCost = GPUCompUnits * 150) 
+
+total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTimeSec, GPUTimeHr, GPUCompUnits, GPUCost) , by = "JobID", all.x = TRUE, all.y = FALSE)
+
+
+
+```
+
+## Summarize Data {.tabset}
+
+### Summary by State and User
+```{r}
+print(paste0('Total # of Jobs: ', nrow(total.dt)))
+
+# summarize by state 
+
+DT::datatable(total.dt %>% group_by(State) %>% summarise(NumJobs = n(), CPUCost = round(sum(CPUCost, na.rm = TRUE),2), GPUCost = round(sum(GPUCost, na.rm = TRUE),2)), extensions = c('Buttons'), options = list(initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+    "}"), searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE))
+```
+
+```{r}
+# SUmmarize by State by User 
+
+filter <- c('State', 'User') 
+
+if (length(unique(total.dt$User)) > 1) { 
+  DT::datatable(total.dt %>% group_by(State, User) %>% summarise(NumJobs = n(), CPUCost = round(sum(CPUCost, na.rm = TRUE),2), GPUCost = round(sum(GPUCost, na.rm = TRUE), 2)), extensions =  c('Buttons'), options = list(initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+    "}"), columnDefs = list(list(targets = filter, searchable = TRUE)), searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE))
+  }
+```
+
+
+### Summary by JobName 
+Table displaying by User + JobName, the TimeEff, CPUEff and MemEff for each. 
+```{r}
+by_jobname <- total.dt %>%  
+  group_by(JobName, User) %>% 
+  summarise(TotalCPUSec = sum(TotalCPUSec, na.rm = TRUE), CPUTimeSec = sum(CPUTimeSec, na.rm = TRUE), ElapsedRaw = sum(ElapsedRaw, na.rm = TRUE), TimelimitRaw = sum(TimelimitRaw, na.rm = TRUE), MaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE), ReqMemG = sum(ReqMemG, na.rm = TRUE), NumJobs = n(), NumCompletedJobs = sum(State == 'COMPLETED'), CPUCost = round(sum(CPUCost, na.rm = TRUE),2) , GPUCost = round(sum(GPUCost, na.rm = TRUE),2)) %>%  
+  mutate(TimeEff = ElapsedRaw/(TimelimitRaw * 60) * 100 ) %>%  
+  mutate(CPUEff = TotalCPUSec/CPUTimeSec * 100) %>%  
+  mutate(MemEff = MaxVMSizeG/ReqMemG*100) %>%  
+  mutate(across(is.numeric, round, digits = 2))
+  
+  
+DT::datatable( by_jobname %>% select(JobName, User, NumJobs, NumCompletedJobs, TimeEff, CPUEff, MemEff,  CPUCost, GPUCost), extensions =  c('Buttons'), options = list(initComplete = JS(
+    "function(settings, json) {",
+    "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+    "}"), searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE))
+
+```
+
+
+#### Scatter Plots by User for JobNames {.tabset}
+Plots are only made for JobNames with > 5 Completed Jobs. 
+
+To improve CPUEff, MemEff and TimeEff, decrease the requested # of CPUs, amount of memory and the timelimit accordingly! 
+
+* Use horizontal scrollbar to view graphs fully! 
+
+<style>
+  .superbigimage{
+      overflow-y:auto;
+      overflow-x:auto;
+      white-space: nowrap;
+  }
+
+  .superbigimage img{
+     max-width: none;
+     max-height: none;
+  }
+
+
+</style>
+
+NOTE: No plots will be shown if you specified '-all FALSE' in your command! 
+```{r, results = 'asis', fig.width = 10, fig.height = 8}
+if (params$all == 'TRUE'){ 
+
+  for(x in unique((by_jobname %>% filter(NumCompletedJobs > 5))$User)) {
+  
+    cat('\n')
+  
+    cat('#####', x, '{.tabset}   \n')
+  
+    cat('\n')
+  
+    target_jobs <- unique((by_jobname %>% filter(NumCompletedJobs > 5 & User == x))$JobName)  
+    
+    user_info <- total.dt %>% filter(User == x & JobName %in% target_jobs) 
+  
+    subtabs <- c('CPUEff', 'MemEff', 'TimeEff')
+    
+    
+    for(subtab in subtabs) {
+      cat('\n')
+  
+      cat('###### ', subtab, '   \n')
+  
+      cat('\n')
+      
+        # if jobnames too many, need to split..
+        chunks <- split(unique(user_info$JobName), ceiling(seq_along(unique(user_info$JobName)) / 8))
+        
+        for (x in chunks){ 
+         subinfo <- user_info %>% filter(JobName %in% x)
+         cat('<div class="superbigimage">')
+          if (str_detect(subtab, 'CPU')){
+           print(ggplot(data = subinfo, aes(x = ReqCPUS, y = CPUEff, colour = str_wrap(JobName, 10))) +
+              geom_point()+ 
+              theme_minimal() + 
+              theme(panel.background = element_blank(), 
+                    legend.title = element_blank(), 
+                    plot.title = element_text(size = 15, face = 'bold'), 
+                    axis.line = element_line(colour = 'black'), 
+                    axis.text = element_text(size = 15.5), 
+                    axis.title = element_text(size = 13, face = 'bold')) + 
+              xlab("Requested CPUs") + ylab("CPU Eff (%)") + 
+              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor(), 
+                                 )  + 
+              coord_cartesian(clip = 'off') + 
+               scale_color_brewer(palette="Dark2") + 
+              ggtitle(paste0("User: ", unique(subinfo$User))))
+            
+          }
+         
+         else if (str_detect(subtab, 'Mem')){
+        
+       
+          print(ggplot(data = subinfo, aes(x = ReqMemG, y = MemEff, colour = str_wrap(JobName, 10))) +
+                  geom_point()+ 
+                  theme_minimal() + 
+                  theme(panel.background = element_blank(), 
+                        legend.title = element_blank(), 
+                        plot.title = element_text(size = 15, face = 'bold'), 
+                        axis.line = element_line(colour = 'black'), 
+                        axis.text = element_text(size = 15.5), 
+                        axis.title = element_text(size = 13, face = 'bold')) + 
+                  scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor()) +
+                  xlab("Requested Memory (GB)") + ylab("Mem Eff (%)")  + 
+                  scale_color_brewer(palette="Dark2") + 
+                  ggtitle(paste0("User: ", unique(subinfo$User))) + 
+                  coord_cartesian(clip = 'off'))
+            
+          
+          }
+            
+      
+      else {
+        
+         
+        print(ggplot(data = subinfo, aes(x = TimelimitRaw, y = TimeEff, colour = str_wrap(JobName, 10))) +
+              geom_point()+ 
+              theme_minimal() + 
+              theme(panel.background = element_blank(), 
+                    legend.title = element_blank(), 
+                    plot.title = element_text(size = 15, face = 'bold'), 
+                    axis.line = element_line(colour = 'black'), 
+                    axis.text = element_text(size = 15.5), 
+                    axis.title = element_text(size = 13, face = 'bold')) + 
+                xlab("Requested Timelimit (Mins)") + ylab("TimeEff (%)")  + 
+              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor()) +
+               scale_color_brewer(palette="Dark2") + 
+              ggtitle(paste0("User: ", unique(subinfo$User))) + 
+              coord_cartesian(clip = 'off'))
+    
+         
+      }
+      
+      cat('<div>')
+      cat('\n')
+      
+        }
+  
+    }
+  
+    
+  }
+
+} 
+
+
+
+
+```
+
+### Full Table 
+All sacct information and usage and cost calculations can be accessed here. 
+Use Column Visibility to control what columns you want to see. 
+
+*Refer to <a href = "https://slurm.schedmd.com/sacct.html">sacct slurm documentation</a> and <a href = 'https://ohsu-cedar-comp-hub.github.io/2023/09/19/Right-Sizing-Slurm-Jobs.html'>this Right Sizing page</a> for clarification. 
+
+NOTE: No full table will be shown if you specified '-all FALSE' in your command! 
+
+```{r warnings = FALSE}
+if (params$all == 'TRUE'){ 
+  # Reordering for ease 
+  total.dt <- total.dt %>%  
+    select(User, JobName, AllocTRES, CPUEff, MemEff, TimeEff, JobID, Account, Group, State, ReqCPUS, Submit.job, Submit.batch, Delay, Start, End, Elapsed, Timelimit, Cluster, Partition, SystemCPU, UserCPU, TotalCPU, TotalCPUSec, CPUTime, CPUTimeSec, MaxRSSG, MaxVMSizeG, MaxDiskReadG, MaxDiskWriteG,CPUTimeHr, CPUCompUnits, CPUCost, GPUTimeHr, GPUCompUnits, GPUCost) %>%  
+    mutate(across(is.numeric, round, digits = 2))
+  
+  default_cols <- c('User', 'JobName', 'AllocTRES', 'CPUEff', 'MemEff', 'TimeEff', 'CPUCost', 'GPUCost')
+  
+  DT::datatable(total.dt, extensions = c('Buttons'), options = list(initComplete = JS(
+      "function(settings, json) {",
+      "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+      "}"), searchHighlight = TRUE, 
+      dom = 'Bfrtip',
+        buttons = list('copy', 'print', list(
+          extend = 'collection',
+          buttons = c('csv', 'excel', 'pdf'),
+          text = 'Download'
+        ), I('colvis')), pageLength = 20, scrollX = TRUE, scrollCollapse = TRUE, 
+        columnDefs = list(list(visible = FALSE, targets = colnames(total.dt)[!(colnames(total.dt) %in% default_cols)]))))     
+
+  
+} 
+```

@@ -1,0 +1,225 @@
+---
+title: "sacct summary"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    code_folding: hide
+  html_notebook:
+    toc: yes
+    toc_float: yes
+params:
+  local: TRUE
+---
+
+"Quick" look at efficiency. 
+
+
+expect that the data is generated with the following command
+sacct --units=G \
+      --format=JobIdRaw,JobName%30,User,Group,State,Submit,Start,End,Cluster,Partition,AllocNodes,ReqCPUs,AllocCPUs,TotalCPU,CPUTime,UserCPU,AveCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw,SubmitLine \
+      --parsable2 -a -A cedar,cedar2,yardimcilab,gray_lab,spellmanlab \
+      --starttime=2024-02-01  > sacct_2024.03.04.txt
+
+Alternatively to get a specific user, call with
+sacct --units=G \
+      -u lusardi \
+      --format=JobIdRaw,JobName%30,User,Group,State,Submit,Start,End,Cluster,Partition,AllocNodes,ReqCPUs,AllocCPUs,TotalCPU,CPUTime,UserCPU,AveCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw,SubmitLine \
+      --parsable2 \
+      --starttime=2024-01-20 
+#      --endtime=2023-12-05
+
+
+```{r, message=FALSE}
+library(data.table, quietly = TRUE)
+library(stringr)
+```
+
+I run this locally... Update for your data file location
+```{r}
+dir.ls <- list(data = "/Users/lusardi/Documents/CEDAR/Exacloud/4.Exacloud Usage")
+```
+
+#### Convenience function(s)
+```{r}
+# Calculate time in seconds - brute force function
+calcSeconds <- function(slurmTime) {
+  fun.dt <- data.table(dtime = slurmTime)
+  mytimecols <- c("dd", "hh", "mm", "ss")
+  # Split out days, hours, minutes, and seconds
+  try(fun.dt[grepl("-", dtime),
+             c("dd", "hh", "mm", "ss") := tstrsplit(dtime, "[-:]")], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 2,
+             c("dd", "hh", "mm", "ss") := c(0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  try(fun.dt[!grepl("-", dtime) & str_count(dtime, ":") == 1,
+             c("dd", "hh", "mm", "ss") := c(0, 0, tstrsplit(dtime, "[-:]"))], silent = TRUE)
+  
+  # Convert from chr to num as available
+  myfuntime <- mytimecols[mytimecols %in% colnames(fun.dt)]
+  fun.dt[, (myfuntime) := lapply(.SD, as.numeric), .SDcols = myfuntime]
+  
+  # Calculate total time in seconds
+  fun.dt[, dtimeSec := dd*24*60*60 + hh*60*60 + mm*60 + ss]
+  return(fun.dt$dtimeSec)
+}
+```
+
+Read in the data. Note - only including main job and batch jobs for now. There are some subjobs that don't seem to have a major impact.
+
+```{r}
+list.files(dir.ls$data)
+data.file <- "sacct_2024.03.01.txt"
+
+my.dt <- fread(paste(dir.ls$data, data.file, sep = "/"))
+
+# Split out jobs & subjobs for convenience
+my.dt[, c("JobID", "SubJob") := tstrsplit(JobIDRaw, "\\.")]
+my.dt[, .N, by = SubJob]
+
+# Convert to seconds for CPU Efficiency calc
+my.dt[, TotalCPUSec := calcSeconds(TotalCPU)]
+my.dt[, CPUTimeSec := calcSeconds(CPUTime)]
+
+# Convert memory to numeric
+units <- "G"
+for (mycol in c("ReqMem", "MaxRSS", "MaxVMSize", "MaxDiskRead", "MaxDiskWrite")) {
+  newcol <- paste(mycol, units, sep = "")
+  my.dt[!(get(mycol) %in% c("", "0")), (newcol) := as.numeric(gsub(units, "", get(mycol)))]
+}
+```
+
+### Merge job/batch info to a single line
+
+```{r}
+colnames.both <- c("JobName", "ReqCPUS", "Submit")
+colnames.job <- c("JobName", "User", "Group", "State", "Submit", "Start", "End", "Cluster",
+                  "Partition", "ReqCPUS", "TotalCPU", "CPUTime", "UserCPU", "SystemCPU",
+                  "Elapsed", "Timelimit", "ReqMem", "CPUTimeRAW", "ElapsedRaw", "TimelimitRaw",
+                  "SubmitLine", "TotalCPUSec", "CPUTimeSec", "ReqMemG", "JobID")
+
+colnames.batch <- c("JobIDRaw", "JobName", "State", "Submit", "AllocNodes", "ReqCPUS",
+                    "AllocCPUS", "AveCPU", "MaxRSS", "MaxVMSize", "MaxDiskWrite", "MaxDiskWriteG",
+                    "MaxDiskRead", "MaxDiskReadG", "MaxRSSG", "MaxVMSizeG", "JobID", "SubJob")
+
+# Split out Job and Batch
+batch.dt <- my.dt[grepl("batch", SubJob), mget(colnames.batch)]
+colnames(batch.dt)[colnames(batch.dt) %in% colnames.both] <-
+  paste(colnames(batch.dt)[colnames(batch.dt) %in% colnames.both], "batch", sep = ".")
+
+job.dt <- my.dt[is.na(SubJob), mget(colnames.job)]
+colnames(job.dt)[colnames(job.dt) %in% colnames.both] <-
+  paste(colnames(job.dt)[colnames(job.dt) %in% colnames.both], "job", sep = ".")
+
+# merge batch & job
+merge.dt <- merge(x = job.dt, y = batch.dt, by = "JobID",
+                  all.x = TRUE, all.y = FALSE, suffixes = c(".job", ".batch"))
+# Calculate Efficiencies
+merge.dt[, ':=' (CPUeff = TotalCPUSec/CPUTimeSec*100,
+                 MemEff = MaxVMSizeG/ReqMemG*100)]
+```
+
+Summarize data by the state (COMPLETED, CANCELLED, etc) at the time of the sacct
+```{r}
+# View selected columns
+cols2view <- c("JobID", "JobName.job", "User", "Group", "State.job", "Submit.job", "SubmitLine",
+               "Start", "End", "Cluster", "Partition", "AllocCPUS", "TotalCPU", "CPUTime",
+               "CPUeff", "ReqMemG", "MaxVMSizeG", "MemEff", "MaxDiskReadG", "MaxDiskWriteG")
+#View(merge.dt[, mget(cols2view)])
+merge.dt[, .N, by = State.job][order(-N)]
+```
+
+Take a look at summary data by user
+Note that incomplete jobs can contribute to disk writing.
+
+```{r}
+UserSummary.dt <- copy(merge.dt[State.job == "COMPLETED"])
+UserSummary.dt <- copy(merge.dt)
+
+# Get summary usage per user
+UserSummary.dt[, ':=' (njobs = .N,
+                       totalCPUAlloc = sum(AllocCPUS, na.rm = TRUE),
+                       totalTotalCPUSec = sum(TotalCPUSec, na.rm = TRUE),
+                       totalCPUTimeSec = sum(CPUTimeSec, na.rm = TRUE),
+                       totalReqMemG = sum(ReqMemG, na.rm = TRUE),
+                       totalMaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE),
+                       totalDiskWriteG = sum(MaxDiskWriteG, na.rm = TRUE)), by = User]
+
+# Calculate overall efficiency 
+UserSummary.dt[, ':=' (totalCPUeff = totalTotalCPUSec/totalCPUTimeSec*100,
+                       totalMemEff = totalMaxVMSizeG/totalReqMemG*100)]
+
+# Select columns for readability
+cols2view <- c("User", "njobs", "totalCPUAlloc",
+               "totalTotalCPUSec", "totalCPUTimeSec", "totalCPUeff",
+               "totalReqMemG", "totalMaxVMSizeG", "totalMemEff", "totalDiskWriteG")
+UserSummary.dt <- unique(UserSummary.dt[, mget(cols2view)])
+```
+
+Summarize by User, JobName.Job
+
+```{r}
+### Update myuser to your user name! 
+myuser <- "cros"
+byJob_State.dt <- merge.dt[User == myuser, ]
+byJob_State.dt[,
+               ':=' (njobs_byJS = .N,
+                     totalCPUAlloc_byJS = sum(AllocCPUS, na.rm = TRUE),
+                     totalTotalCPUSec_byJS = sum(TotalCPUSec, na.rm = TRUE),
+                     totalCPUTimeSec_byJS = sum(CPUTimeSec, na.rm = TRUE),
+                     totalReqMemG_byJS = sum(ReqMemG, na.rm = TRUE),
+                     totalMaxVMSizeG_byJS = sum(MaxVMSizeG, na.rm = TRUE),
+                     totalDiskWriteG_byJS = sum(MaxDiskWriteG, na.rm = TRUE)),
+               by = .(JobName.job, State.job)][order(JobName.job, State.job)]
+
+# Calculate overall efficiency 
+byJob_State.dt[, ':=' (totalCPUeff_byJS = totalTotalCPUSec_byJS/totalCPUTimeSec_byJS*100,
+                       totalMemEff_byJS = totalMaxVMSizeG_byJS/totalReqMemG_byJS*100)]
+
+# Select columns for readability
+cols2view <- c("User", "JobName.job", "State.job", "njobs_byJS", "totalCPUAlloc_byJS",
+               "totalTotalCPUSec_byJS", "totalCPUTimeSec_byJS", "totalCPUeff_byJS",
+               "totalReqMemG_byJS", "totalMaxVMSizeG_byJS", "totalMemEff_byJS", "totalDiskWriteG_byJS")
+byJob_State.dt <- unique(byJob_State.dt[, mget(cols2view)])
+```
+
+### Some plots
+Efficiency is really only valid for completed jobs.        
+CPUeff is really only of interest for jobs with > 1 CPU        
+Unless you look at 99% efficiency with 1 CPU - is parallelization possible? Could be worthwhile.
+
+```{r}
+job.dt <- merge.dt[User == myuser & State.job %in% mystate, ]
+
+jobs <- unique(byJob_State.dt[State.job == "COMPLETED" & njobs_byJS > 4, JobName.job])
+
+for (myjob in jobs) {
+  # Distribution of MaxDiskWrite over all jobs
+  # Some jobs don't write to disk, so value is NA - check for data first.
+  if (job.dt[JobName.job %in% myjob, sum(!is.na(MaxDiskWriteG)) > 0]) {
+    job.dt[JobName.job %in% myjob, hist(MaxDiskWriteG, breaks = 25,
+                                        main = sprintf("%s - %s, %s State(s)", myuser, myjob, mystate))]
+  }
+  
+  # Distribution of Memory Efficiency over all jobs
+  if (job.dt[JobName.job %in% myjob, sum(!is.na(MemEff)) > 0]) {
+    job.dt[JobName.job %in% myjob, hist(MemEff, breaks = 25,
+                                       main = sprintf("%s - %s, %s State(s)", myuser, myjob, mystate),
+                                       xlab = sprintf("MemEff, %.2fG Req/Job", unique(ReqMemG)))]
+  }
+  
+  # For jobs with >1 CPU, check CPU efficiency
+  if (job.dt[JobName.job == myjob & ReqCPUS.job > 1, .N] > 0) {
+    # Distribution
+    job.dt[JobName.job %in% myjob, hist(CPUeff, breaks = 25,
+                                       main = sprintf("%s - %s, %s State(s)", myuser, myjob, mystate),
+                                       xlab = sprintf("CPUeff, %i Req/Job", unique(ReqCPUS.job)))]
+    
+    # CPU and Memory Efficiency paired
+    job.dt[JobName.job %in% myjob & ReqCPUS.job > 1,
+          plot(CPUeff ~ MemEff, pch = 20,
+               main = sprintf("%s - %s, %s State(s)", myuser, myjob, mystate),
+               xlab = sprintf("MemEff, %.2fG Req/Job", unique(ReqMemG)),
+               ylab = sprintf("CPUeff, %i Req/Job", unique(ReqCPUS.job)))]
+  }
+}
+```

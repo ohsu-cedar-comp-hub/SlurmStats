@@ -43,9 +43,9 @@ You can run the tools in two primary ways:
 Run the script directly with the following command:
 
 ```bash
-./JobAssess.sh -u <user> -s <start_date> -e <end_date> -a <accounts> -all <all_info>
+./JobAssess.sh -u <user> -s <start_date> -e <end_date> -a <accounts> -p <partition> -all <all_info>
 
-./TrackUsage.sh -u <user> -s <start_date> -e <end_date> -a <accounts> 
+./TrackUsage.sh -u <user> -s <start_date> -e <end_date> -a <accounts> -p <partition> 
 ```
 - **`-u <user>`** : User(s) to filer by. Filter for multiple users by inputting comma separated values. 
 If omitted, data for all users will be included. 
@@ -55,6 +55,8 @@ If omitted, data for all users will be included.
 - **`-e <end_date>`** : End date in the format `YYYY-MM-DD`. If omitted, end date will be the current date. 
 
 - **`-a <accounts>`** : Account(s) to filter by. Include multiple accounts by inputting comma separated values. If omitted, default will be `cedar,cedar2`. 
+
+- **`-p <partition>`** : Partition(s) to filter by. Include multiple partitions by inputting comma separated values. If omitted, default will be all partitions. 
 
 - **`-all <all_info>`** : Shows all information (individual user plots and full tables). Accepts TRUE or FALSE. If omitted, default will be `TRUE`. 
 

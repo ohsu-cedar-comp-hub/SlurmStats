@@ -11,7 +11,8 @@ params:
   start: NA
   end: NA
   file: NA
-  all: 'TRUE'
+  partition: NA
+  all: 'TRUE' 
 ---
 
 ```{r setup, include=FALSE}
@@ -39,6 +40,7 @@ file <- params$file
 user <- params$user 
 start <- params$start 
 end <- params$end
+partition <- params$partition
 account <- params$account
 all <- params$all
 output_file <- paste0("clean", file)
@@ -58,11 +60,8 @@ if (!is.na(file)){
   if (is.na(start)){
     start <- as.character(as.Date(end) - 7 ) }
   
-
-  
   sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
 
-  
    if (!is.na(user)){ 
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))
   }
@@ -73,12 +72,28 @@ if (!is.na(file)){
   
   print(sacct_command)
   
-
 }
 
-print(sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s, all: %s", file, user, account, start, end, all)) 
+output <- sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s, all: %s", file, user, account,start, end, all)
+
+if (!is.na(partition)){ 
+  partitions <- unlist(strsplit(partition, ","))
+  targets <- data %>% 
+    filter(sapply(Partition, function(x) any(grepl(partitions, x)))) %>% 
+    pull(JobIDRaw)
+  data <- data %>% 
+    filter(as.character(sub("\\..*", "", JobIDRaw)) %in% as.character(targets))
+    
+  output <- paste(output, sprintf(", Partition: %s", partition))
+  
+}
+
+print(output)
+
 
 ```
+
+
 ```{r}
 if (nrow(data) == 0){ 
   print("Data retrieved is empty! Review sacct command or your inputted file. ")
@@ -153,7 +168,7 @@ colnames(job.dt)[colnames(job.dt) %in% colnames.both] <-
 cpu_only <- merge(x = job.dt, y = batch.dt, by = "JobID",
                   all.x = TRUE, all.y = FALSE, suffixes = c(".job", ".batch"))
 # Calculate Efficiencies + Delay
-cpu_only[, ':=' (CPUEff = round(TotalCPUSec/CPUTimeSec*100, 2),
+cpu_only[, ':=' (CPUEff = ifelse(CPUTimeSec > 0, round(TotalCPUSec / CPUTimeSec * 100, 2), NA_real_),
                  MemEff = round(MaxVMSizeG/ReqMemG*100, 2), 
                  TimeEff = round(ElapsedRaw/(TimelimitRaw * 60) * 100, 2), 
                  Start = str_replace(Start, "T", " "), 
@@ -182,6 +197,10 @@ gpu_only <- cpu_only %>%
 
 total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTimeSec, GPUTimeHr, GPUCompUnits, GPUCost) , by = "JobID", all.x = TRUE, all.y = FALSE)
 
+print(paste0('Total # of Jobs: ', nrow(total.dt)))
+print(paste0('Total CPU Cost: $', round(sum(total.dt$CPUCost, na.rm = TRUE), 2)))
+print(paste0('Total GPU Cost: $', round(sum(total.dt$GPUCost, na.rm = TRUE), 2)))
+
 
 
 ```
@@ -190,7 +209,7 @@ total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTime
 
 ### Summary by State and User
 ```{r}
-print(paste0('Total # of Jobs: ', nrow(total.dt)))
+
 
 # summarize by state 
 
@@ -206,7 +225,7 @@ DT::datatable(total.dt %>% group_by(State) %>% summarise(NumJobs = n(), CPUCost 
 filter <- c('State', 'User') 
 
 if (length(unique(total.dt$User)) > 1) { 
-  DT::datatable(total.dt %>% group_by(State, User) %>% summarise(NumJobs = n(), CPUCost = round(sum(CPUCost, na.rm = TRUE),2), GPUCost = round(sum(GPUCost, na.rm = TRUE), 2)), extensions =  c('Buttons'), options = list(initComplete = JS(
+  DT::datatable(total.dt %>% group_by(State, User) %>% summarise(NumJobs = n(), CPUCost = round(sum(CPUCost, na.rm = TRUE),2), GPUCost = round(sum(GPUCost, na.rm = TRUE), 2), AggCPUEff=round(mean(CPUEff, na.rm = TRUE), 2)), extensions =  c('Buttons'), options = list(initComplete = JS(
     "function(settings, json) {",
     "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
     "}"), columnDefs = list(list(targets = filter, searchable = TRUE)), searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE))

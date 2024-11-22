@@ -52,15 +52,21 @@ if (!is.na(file)){
   data <- fread(output_file)
 } else { 
   print("Pulling sacct data..")
-  # if end is NA -> use today's date 
-  if (is.na(end)){ 
-     end <- Sys.Date()}   
+  # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
   
   if (is.na(start)){
     start <- as.character(as.Date(end) - 7 ) }
   
-  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
+  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s", account, start)
+  
+  if (!is.na(end)){ 
+    sacct_command <- paste(sacct_command, sprintf("--endtime=%s", end))
+    }
+  
+  else { 
+    end <- Sys.Date()
+  }
 
    if (!is.na(user)){ 
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))

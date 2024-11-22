@@ -67,9 +67,17 @@ if (!is.na(file)){
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))
   }
   
-  temp_file <- tempfile()
-  system(paste(sacct_command, ">", temp_file), wait = TRUE)
-  data <- fread(temp_file)
+ print("...from ARC")
+  temp_file1 <- tempfile()
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", temp_file1), wait = TRUE)
+  
+  print("...from Exacloud")
+  temp_file2 <- tempfile()
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", temp_file2), wait = TRUE)
+  system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
+  data <- fread(output_file)
   
   print(sacct_command)
 } 
@@ -179,8 +187,8 @@ cpu_only[, ':=' (CPUEff = TotalCPUSec/CPUTimeSec*100,
                  Start = str_replace(Start, "T", " "), 
                  End = str_replace(End, "T", " "))]
 
-cpu_only[, ':=' (Start = as.POSIXct(Start, format = "%Y-%m-%d %H:%M:%S", origin = "1970-01-01", tz = "UTC"), 
-                 End = as.POSIXct(End, format = "%Y-%m-%d %H:%M:%S",origin = "1970-01-01",  tz = "UTC"))]
+cpu_only[, ':=' (Start = as.POSIXct(Start, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"), 
+                 End = as.POSIXct(End, format = "%Y-%m-%d %H:%M:%S", tz = "UTC"))]
 
 cpu_only$Delay <- as.numeric(cpu_only$Start - cpu_only$Submit.job, units = 'secs')
 
@@ -194,8 +202,7 @@ gpu_only <- cpu_only %>%
 
 total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTimeSec) , by = "JobID", all.x = TRUE, all.y = FALSE)
 
-total.dt <- total.dt %>%  
-  filter(Partition=='cedar')
+
 
 ```
 
@@ -209,9 +216,9 @@ days_range <- as.numeric(max(total.dt$Start, na.rm = TRUE) - min(total.dt$Start,
   
 total.dt <- total.dt %>%  
   mutate(Start = ifelse(is.na(Start), Submit.job, Start)) %>% 
-  mutate(Start = as.POSIXct(Start, tz = 'UTC', origin = "1970-01-01")) %>% 
+  mutate(Start = as.POSIXct(Start, tz = 'UTC')) %>% 
   mutate(End = ifelse(is.na(End), Start + ElapsedRaw, End)) %>% 
-  mutate(End = as.POSIXct(End, tz = 'UTC', origin = "1970-01-01")) %>%  
+  mutate(End = as.POSIXct(End, tz = 'UTC')) %>%  
   mutate(End = as.Date(End)) %>% 
   mutate(Week = as.Date(cut.Date(End, breaks = '1 week')))
 
@@ -492,6 +499,8 @@ else {
           print(allCPU_budget[[1]])
           print(allCPU_budget[[2]])
           
+          cat('\n')
+          
           }
         
     
@@ -510,15 +519,26 @@ else {
           print(accGPU[[2]])
           
        cat('\n')
+      }
+      
+      else if (x == 'All Data'){ 
+        allGPU <- make_plot(data, 'GPU', NA)
+          
+        print(allGPU[[1]]) 
+     
+
+        print(allGPU[[2]])
+    
+        cat('\n')
         }
         
         
         else { 
-          allGPU <- make_plot(data, 'GPU', NA)
+          allGPU_budget <- make_plot(data, 'GPU', NA, TRUE)
   
-          print(allGPU[[1]]) 
+          print(allGPU_budget[[1]]) 
        
-          print(allGPU[[2]])
+          print(allGPU_budget[[2]])
        
           cat('\n')
       

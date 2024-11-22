@@ -55,4 +55,4 @@ echo "Acct: $ACCT"
 
 
 # Run the RMarkdown file with parameters
-Rscript -e "rmarkdown::render('SlurmTrackUsage_new.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT'))"
+Rscript -e "rmarkdown::render('SlurmTrackUsage.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT'))"

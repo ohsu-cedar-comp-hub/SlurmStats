@@ -12,7 +12,7 @@ params:
   end: NA
   file: NA
   partition: NA
-  all: 'TRUE' 
+  all: 'FALSE' 
 ---
 
 ```{r setup, include=FALSE}
@@ -66,9 +66,17 @@ if (!is.na(file)){
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))
   }
   
-  temp_file <- tempfile()
-  system(paste(sacct_command, ">", temp_file), wait = TRUE)
-  data <- fread(temp_file)
+  print("...from ARC")
+  temp_file1 <- tempfile()
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", temp_file1), wait = TRUE)
+  
+  print("...from Exacloud")
+  temp_file2 <- tempfile()
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", temp_file2), wait = TRUE)
+  system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
+  data <- fread(output_file)
   
   print(sacct_command)
   

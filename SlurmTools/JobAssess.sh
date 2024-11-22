@@ -52,4 +52,4 @@ echo "Acct: $ACCT"
 echo "All: $ALL"
 
 # Run the RMarkdown file with parameters
-Rscript -e "rmarkdown::render('SlurmJobAssessment_new.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT', all = '$ALL'))"
+Rscript -e "rmarkdown::render('SlurmJobAssessment.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT', all = '$ALL'))"

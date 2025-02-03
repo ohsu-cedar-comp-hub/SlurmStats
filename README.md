@@ -2,7 +2,7 @@
 
 There are two tools that can be used separately or together to learn about the performance of specific Slurm jobs and help optimization by improving CPU, GPU, Memory and Time efficiencies. 
 
-** UPDATE : Both tools will prompt you for your ohsu password in order to connect to both ARC and Exacloud clusters. This is to pull the most accurate usage information. This will be in place until Exacloud is discontinued. ** 
+** UPDATE : Exacloud has been discontinued. These tools can only be used to extract information about jobs ran on ARC. If you have any questions about past Exacloud jobs/usage data, please contact chaoe@ohsu.edu ** 
 
 **Tool 1- Slurm Job Assessment:**
 
@@ -94,7 +94,8 @@ You cannot use both methods at the same time for either tool. If you provide bot
 
 #### Running on Exacloud Compute Node
 
-For optimal performance, it is recommended to run the tools on the head node of Exacloud. However, it can be run on a compute node using this command: 
+Because these tools are computationally light, it is recommended to run the tools on the head node of Exacloud following the usage examples above. 
+However, it can be run on a compute node using this command: 
 
 ```bash 
 srun ./JobAssess.sh

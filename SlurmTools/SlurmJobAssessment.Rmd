@@ -254,15 +254,16 @@ Table displaying by User + Submission Line, the TimeEff, CPUEff and MemEff for e
 
 ```{r}
 by_jobname <- total.dt %>%  
-  group_by(SubmitLine, User) %>% 
-  summarise(TotalCPUSec = sum(TotalCPUSec, na.rm = TRUE), CPUTimeSec = sum(CPUTimeSec, na.rm = TRUE), ElapsedRaw = sum(ElapsedRaw, na.rm = TRUE), TimelimitRaw = sum(TimelimitRaw, na.rm = TRUE), MaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE), ReqMemG = sum(ReqMemG, na.rm = TRUE), NumJobs = n(), NumCompletedJobs = sum(State == 'COMPLETED'), CPUCost = round(sum(CPUCost, na.rm = TRUE),2) , GPUCost = round(sum(GPUCost, na.rm = TRUE),2), JobNames = str_c(unique(JobName), collapse = ",")) %>%  
+  mutate(SubmitShort = str_replace(SubmitLine, ".*/([^/]+/[^/]+/[^/]+)$", "\\1")) %>% 
+  group_by(SubmitShort, User) %>% 
+  summarise(TotalCPUSec = sum(TotalCPUSec, na.rm = TRUE), CPUTimeSec = sum(CPUTimeSec, na.rm = TRUE), ElapsedRaw = sum(ElapsedRaw, na.rm = TRUE), TimelimitRaw = sum(TimelimitRaw, na.rm = TRUE), MaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE), ReqMemG = sum(ReqMemG, na.rm = TRUE), NumJobs = n(), NumCompletedJobs = sum(State == 'COMPLETED'), CPUCost = round(sum(CPUCost, na.rm = TRUE),2) , GPUCost = round(sum(GPUCost, na.rm = TRUE),2), JobNames = str_c(unique(JobName), collapse = ","), 
+  SubmitLine = str_c(unique(SubmitShort), collapse = ",")) %>%  
  mutate(TimeEff = ElapsedRaw/(TimelimitRaw * 60) * 100 ) %>%  
  mutate(CPUEff = TotalCPUSec/CPUTimeSec * 100) %>%  
- mutate(MemEff = MaxVMSizeG/ReqMemG*100) %>%  
- mutate(SubmitShort = str_replace(SubmitLine, "^.*/([^/]+/[^/]+)$", "\\1")) %>% 
+ mutate(MemEff = MaxVMSizeG/ReqMemG*100)  %>% 
  mutate(across(is.numeric, round, digits = 2)) 
   
-ellipsis_cols = c("JobNames", "SubmitLine")
+ellipsis_cols = c("JobNames", "SubmitShort", "SubmitLine")
 DT::datatable(by_jobname %>% select(SubmitShort, JobNames, User, NumJobs, NumCompletedJobs, TimeEff, CPUEff, MemEff,CPUCost, GPUCost, SubmitLine), extensions = c('Buttons'), plugins = "ellipsis", 
               options = list(searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE, initComplete = JS(
     "function(settings, json) {",
@@ -276,7 +277,9 @@ DT::datatable(by_jobname %>% select(SubmitShort, JobNames, User, NumJobs, NumCom
 
 
 ```{r}
-total.dt <- merge(total.dt, by_jobname[, c("SubmitLine", "SubmitShort")], by = "SubmitLine", all.x = TRUE)
+total.dt <- total.dt %>%
+    mutate(SubmitShort = str_replace(SubmitLine, ".*/([^/]+/[^/]+/[^/]+)$", "\\1"))
+
 
 ```
 
@@ -309,7 +312,7 @@ For other jobs, they are categorized into MISC.
 
 Use the Full Table and its search option to filter and see further details! 
 
-NOTE: For MISC jobs, filter by req CPUs and order by ascending CPU Eff to see the ones that need improvement! 
+EXAMPLE: For MISC jobs, filter by req CPUs and MISC and order by ascending CPU Eff to see the ones that need improvement! 
 
 ```{r, results = 'asis', fig.width = 10, fig.height = 8}
 if (params$all == 'TRUE'){ 
@@ -325,7 +328,7 @@ if (params$all == 'TRUE'){
     target_jobs <- unique((by_jobname %>% filter(NumCompletedJobs > 5 & User == x))$SubmitShort)  
     
     user_info <- total.dt %>% 
-      mutate(Category = if_else(SubmitShort %in% target_jobs, SubmitShort, 'MISC')) 
+      mutate(Category = if_else(SubmitShort %in% target_jobs, SubmitShort, 'MISC'))
   
     subtabs <- c('CPUEff', 'MemEff', 'TimeEff')
     
@@ -341,10 +344,15 @@ if (params$all == 'TRUE'){
         chunks <- split(unique(user_info$Category), ceiling(seq_along(unique(user_info$Category)) / 8))
         
         for (x in chunks){ 
-         subinfo <- user_info %>% filter(Category %in% x)
+         subinfo <- user_info %>% filter(Category %in% x) 
+         subinfo$miniCategory <- ifelse(nchar(subinfo$Category) > 20 & length(str_split(subinfo$Category, '/')[[1]]) > 2,
+                                        paste0("...", str_replace(subinfo$Category, ".*/([^/]+/[^/]+)$", "\\1")), subinfo$Category)
+
+         total.dt <- merge(total.dt, subinfo[, c("JobID", "miniCategory")], by = "JobID", all.x = TRUE)
+
          cat('<div class="superbigimage">')
           if (str_detect(subtab, 'CPU')){
-           print(ggplot(data = subinfo, aes(x = ReqCPUS, y = CPUEff, colour = str_wrap(Category, 10))) +
+           print(ggplot(data = subinfo, aes(x = ReqCPUS, y = CPUEff, colour = miniCategory)) +
               geom_point()+ 
               theme_minimal() + 
               theme(panel.background = element_blank(), 
@@ -354,10 +362,8 @@ if (params$all == 'TRUE'){
                     axis.text = element_text(size = 15.5), 
                     axis.title = element_text(size = 13, face = 'bold')) + 
               xlab("Requested CPUs") + ylab("CPU Eff (%)") + 
-              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor(), 
-                                 )  + 
-              coord_cartesian(clip = 'off') + 
-               scale_color_brewer(palette="Dark2") + 
+              scale_x_continuous(breaks = function(x) pretty(x, n = 6) %>% floor())  + 
+              coord_cartesian(clip = 'off') +
               ggtitle(paste0("User: ", unique(subinfo$User))))
             
           }
@@ -365,7 +371,7 @@ if (params$all == 'TRUE'){
          else if (str_detect(subtab, 'Mem')){
         
        
-          print(ggplot(data = subinfo, aes(x = ReqMemG, y = MemEff, colour = str_wrap(Category, 10))) +
+          print(ggplot(data = subinfo, aes(x = ReqMemG, y = MemEff, colour = miniCategory)) +
                   geom_point()+ 
                   theme_minimal() + 
                   theme(panel.background = element_blank(), 
@@ -374,7 +380,7 @@ if (params$all == 'TRUE'){
                         axis.line = element_line(colour = 'black'), 
                         axis.text = element_text(size = 15.5), 
                         axis.title = element_text(size = 13, face = 'bold')) + 
-                  scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor()) +
+                  scale_x_continuous(breaks = function(x) pretty(x, n = 6) %>% floor()) +
                   xlab("Requested Memory (GB)") + ylab("Mem Eff (%)")  + 
                   scale_color_brewer(palette="Dark2") + 
                   ggtitle(paste0("User: ", unique(subinfo$User))) + 
@@ -387,7 +393,7 @@ if (params$all == 'TRUE'){
       else {
         
          
-        print(ggplot(data = subinfo, aes(x = TimelimitRaw, y = TimeEff, colour = str_wrap(Category, 10))) +
+        print(ggplot(data = subinfo, aes(x = TimelimitRaw, y = TimeEff, colour = miniCategory)) +
               geom_point()+ 
               theme_minimal() + 
               theme(panel.background = element_blank(), 
@@ -397,7 +403,7 @@ if (params$all == 'TRUE'){
                     axis.text = element_text(size = 15.5), 
                     axis.title = element_text(size = 13, face = 'bold')) + 
                 xlab("Requested Timelimit (Mins, k = 1000)") + ylab("TimeEff (%)")  + 
-              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor(), 
+              scale_x_continuous(breaks = function(x) pretty(x, n = 6) %>% floor(), 
                                  labels = label_number(scale = 1e-3, suffix = "k")) +
                scale_color_brewer(palette="Dark2") + 
               ggtitle(paste0("User: ", unique(subinfo$User))) + 
@@ -435,10 +441,10 @@ NOTE: No full table will be shown if you specified '-all FALSE' in your command!
 if (params$all == 'TRUE'){ 
   # Reordering for ease 
   total.dt <- total.dt %>%  
-    select(User, JobName, SubmitShort, SubmitLine, AllocTRES, CPUEff, MemEff, TimeEff, JobID, Account, Group, State, ReqCPUS, Submit.job, Submit.batch, Delay, Start, End, Elapsed, Timelimit, Cluster, Partition, SystemCPU, UserCPU, TotalCPU, TotalCPUSec, CPUTime, CPUTimeSec, MaxRSSG, MaxVMSizeG, MaxDiskReadG, MaxDiskWriteG,CPUTimeHr, CPUCompUnits, CPUCost, GPUTimeHr, GPUCompUnits, GPUCost) %>%  
+    select(User, JobName, miniCategory, SubmitShort, SubmitLine, AllocTRES, CPUEff, MemEff, TimeEff, JobID, Account, Group, State, ReqCPUS, Submit.job, Submit.batch, Delay, Start, End, Elapsed, Timelimit, Cluster, Partition, SystemCPU, UserCPU, TotalCPU, TotalCPUSec, CPUTime, CPUTimeSec, MaxRSSG, MaxVMSizeG, MaxDiskReadG, MaxDiskWriteG,CPUTimeHr, CPUCompUnits, CPUCost, GPUTimeHr, GPUCompUnits, GPUCost) %>%  
     mutate(across(is.numeric, round, digits = 2))
   
-  default_cols <- c('User', 'JobName', 'SubmitShort', 'AllocTRES', 'CPUEff', 'MemEff', 'TimeEff', 'CPUCost', 'GPUCost')
+  default_cols <- c('User', 'JobName', 'miniCategory', 'AllocTRES', 'CPUEff', 'MemEff', 'TimeEff', 'CPUCost', 'GPUCost')
   
   DT::datatable(total.dt, extensions = c('Buttons'), options = list(initComplete = JS(
       "function(settings, json) {",

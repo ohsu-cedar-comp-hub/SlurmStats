@@ -12,7 +12,7 @@ params:
   end: NA
   file: NA
   partition: NA
-  all: 'FALSE' 
+  all: 'TRUE' 
 ---
 
 ```{r setup, include=FALSE}
@@ -25,6 +25,7 @@ library(stringr)
 library(tidyverse)
 library(knitr)
 library(DT)
+library(scales)
 ```
 
 ## Retrieve Data 
@@ -54,23 +55,35 @@ if (!is.na(file)){
   print("Pulling sacct data..")
   # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
-  if (is.na(end)){ 
-      end <- Sys.Date() } 
   
   if (is.na(start)){
     start <- as.character(as.Date(end) - 7 ) }
   
-  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
+  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,SubmitLine,TimelimitRaw --parsable2 -a -A %s --starttime=%s", account, start)
   
-  if (!is.na(user)){ 
+  if (!is.na(end)){ 
+    sacct_command <- paste(sacct_command, sprintf("--endtime=%s", end))
+  }
+  
+  else { 
+    end <- Sys.Date()
+    }
+
+   if (!is.na(user)){ 
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))
   }
   
   print("...from ARC")
   temp_file1 <- tempfile()
-  system(paste(sacct_command, ">", temp_file1), wait = TRUE)
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", output_file), wait = TRUE)
   
-  data <- fread(temp_file1)
+  #print("...from Exacloud")
+  #temp_file2 <- tempfile()
+  #ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
+  #system(paste(ssh_command, ">", temp_file2), wait = TRUE)
+  #system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
+  data <- fread(output_file)
   
   print(sacct_command)
   
@@ -149,7 +162,7 @@ data[, CPUTimeSec := calcSeconds(CPUTime)]
 ```{r}
 
 colnames.both <- c("Submit")
-colnames.job <- c("JobName", "User", "State", "Group", "Account", "Submit", "Start", "End", "Cluster",
+colnames.job <- c("JobName", "User", "State", "Group", "Account", "Submit", "SubmitLine", "Start", "End", "Cluster",
                   "Partition", "AllocTRES", "ReqCPUS", "TotalCPU", "CPUTime", "UserCPU", "SystemCPU","Elapsed", "Timelimit", "ReqMem", "CPUTimeRAW", "ElapsedRaw", "TimelimitRaw",
                   "TotalCPUSec", "CPUTimeSec", "ReqMemG", "JobID")
 
@@ -235,28 +248,39 @@ if (length(unique(total.dt$User)) > 1) {
 ```
 
 
-### Summary by JobName 
-Table displaying by User + JobName, the TimeEff, CPUEff and MemEff for each. 
+### Summary by Job 
+Jobs are grouped by their submission line. 
+Table displaying by User + Submission Line, the TimeEff, CPUEff and MemEff for each. 
+
 ```{r}
 by_jobname <- total.dt %>%  
-  group_by(JobName, User) %>% 
-  summarise(TotalCPUSec = sum(TotalCPUSec, na.rm = TRUE), CPUTimeSec = sum(CPUTimeSec, na.rm = TRUE), ElapsedRaw = sum(ElapsedRaw, na.rm = TRUE), TimelimitRaw = sum(TimelimitRaw, na.rm = TRUE), MaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE), ReqMemG = sum(ReqMemG, na.rm = TRUE), NumJobs = n(), NumCompletedJobs = sum(State == 'COMPLETED'), CPUCost = round(sum(CPUCost, na.rm = TRUE),2) , GPUCost = round(sum(GPUCost, na.rm = TRUE),2)) %>%  
-  mutate(TimeEff = ElapsedRaw/(TimelimitRaw * 60) * 100 ) %>%  
-  mutate(CPUEff = TotalCPUSec/CPUTimeSec * 100) %>%  
-  mutate(MemEff = MaxVMSizeG/ReqMemG*100) %>%  
-  mutate(across(is.numeric, round, digits = 2))
+  group_by(SubmitLine, User) %>% 
+  summarise(TotalCPUSec = sum(TotalCPUSec, na.rm = TRUE), CPUTimeSec = sum(CPUTimeSec, na.rm = TRUE), ElapsedRaw = sum(ElapsedRaw, na.rm = TRUE), TimelimitRaw = sum(TimelimitRaw, na.rm = TRUE), MaxVMSizeG = sum(MaxVMSizeG, na.rm = TRUE), ReqMemG = sum(ReqMemG, na.rm = TRUE), NumJobs = n(), NumCompletedJobs = sum(State == 'COMPLETED'), CPUCost = round(sum(CPUCost, na.rm = TRUE),2) , GPUCost = round(sum(GPUCost, na.rm = TRUE),2), JobNames = str_c(unique(JobName), collapse = ",")) %>%  
+ mutate(TimeEff = ElapsedRaw/(TimelimitRaw * 60) * 100 ) %>%  
+ mutate(CPUEff = TotalCPUSec/CPUTimeSec * 100) %>%  
+ mutate(MemEff = MaxVMSizeG/ReqMemG*100) %>%  
+ mutate(SubmitShort = str_replace(SubmitLine, "^.*/([^/]+/[^/]+)$", "\\1")) %>% 
+ mutate(across(is.numeric, round, digits = 2)) 
   
-  
-DT::datatable( by_jobname %>% select(JobName, User, NumJobs, NumCompletedJobs, TimeEff, CPUEff, MemEff,  CPUCost, GPUCost), extensions =  c('Buttons'), options = list(initComplete = JS(
+ellipsis_cols = c("JobNames", "SubmitLine")
+DT::datatable(by_jobname %>% select(SubmitShort, JobNames, User, NumJobs, NumCompletedJobs, TimeEff, CPUEff, MemEff,CPUCost, GPUCost, SubmitLine), extensions = c('Buttons'), plugins = "ellipsis", 
+              options = list(searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE, initComplete = JS(
     "function(settings, json) {",
     "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
-    "}"), searchHighlight = TRUE, scrollX = TRUE, scrollCollapse = TRUE))
+    "}"), 
+    columnDefs = list(
+      list(targets = colnames(by_jobname)[(colnames(by_jobname) %in% ellipsis_cols)], 
+           render = JS("$.fn.dataTable.render.ellipsis(15)")))))
 
 ```
 
 
-#### Scatter Plots by User for JobNames {.tabset}
-Plots are only made for JobNames with > 5 Completed Jobs. 
+```{r}
+total.dt <- merge(total.dt, by_jobname[, c("SubmitLine", "SubmitShort")], by = "SubmitLine", all.x = TRUE)
+
+```
+
+#### Scatter Plots by User for Jobs {.tabset}
 
 To improve CPUEff, MemEff and TimeEff, decrease the requested # of CPUs, amount of memory and the timelimit accordingly! 
 
@@ -278,6 +302,15 @@ To improve CPUEff, MemEff and TimeEff, decrease the requested # of CPUs, amount 
 </style>
 
 NOTE: No plots will be shown if you specified '-all FALSE' in your command! 
+
+For unique jobs w/ > 5 completed, they will be plotted below w/ legend corresponding to submission line. 
+
+For other jobs, they are categorized into MISC. 
+
+Use the Full Table and its search option to filter and see further details! 
+
+NOTE: For MISC jobs, filter by req CPUs and order by ascending CPU Eff to see the ones that need improvement! 
+
 ```{r, results = 'asis', fig.width = 10, fig.height = 8}
 if (params$all == 'TRUE'){ 
 
@@ -289,9 +322,10 @@ if (params$all == 'TRUE'){
   
     cat('\n')
   
-    target_jobs <- unique((by_jobname %>% filter(NumCompletedJobs > 5 & User == x))$JobName)  
+    target_jobs <- unique((by_jobname %>% filter(NumCompletedJobs > 5 & User == x))$SubmitShort)  
     
-    user_info <- total.dt %>% filter(User == x & JobName %in% target_jobs) 
+    user_info <- total.dt %>% 
+      mutate(Category = if_else(SubmitShort %in% target_jobs, SubmitShort, 'MISC')) 
   
     subtabs <- c('CPUEff', 'MemEff', 'TimeEff')
     
@@ -304,13 +338,13 @@ if (params$all == 'TRUE'){
       cat('\n')
       
         # if jobnames too many, need to split..
-        chunks <- split(unique(user_info$JobName), ceiling(seq_along(unique(user_info$JobName)) / 8))
+        chunks <- split(unique(user_info$Category), ceiling(seq_along(unique(user_info$Category)) / 8))
         
         for (x in chunks){ 
-         subinfo <- user_info %>% filter(JobName %in% x)
+         subinfo <- user_info %>% filter(Category %in% x)
          cat('<div class="superbigimage">')
           if (str_detect(subtab, 'CPU')){
-           print(ggplot(data = subinfo, aes(x = ReqCPUS, y = CPUEff, colour = str_wrap(JobName, 10))) +
+           print(ggplot(data = subinfo, aes(x = ReqCPUS, y = CPUEff, colour = str_wrap(Category, 10))) +
               geom_point()+ 
               theme_minimal() + 
               theme(panel.background = element_blank(), 
@@ -331,7 +365,7 @@ if (params$all == 'TRUE'){
          else if (str_detect(subtab, 'Mem')){
         
        
-          print(ggplot(data = subinfo, aes(x = ReqMemG, y = MemEff, colour = str_wrap(JobName, 10))) +
+          print(ggplot(data = subinfo, aes(x = ReqMemG, y = MemEff, colour = str_wrap(Category, 10))) +
                   geom_point()+ 
                   theme_minimal() + 
                   theme(panel.background = element_blank(), 
@@ -353,7 +387,7 @@ if (params$all == 'TRUE'){
       else {
         
          
-        print(ggplot(data = subinfo, aes(x = TimelimitRaw, y = TimeEff, colour = str_wrap(JobName, 10))) +
+        print(ggplot(data = subinfo, aes(x = TimelimitRaw, y = TimeEff, colour = str_wrap(Category, 10))) +
               geom_point()+ 
               theme_minimal() + 
               theme(panel.background = element_blank(), 
@@ -362,8 +396,9 @@ if (params$all == 'TRUE'){
                     axis.line = element_line(colour = 'black'), 
                     axis.text = element_text(size = 15.5), 
                     axis.title = element_text(size = 13, face = 'bold')) + 
-                xlab("Requested Timelimit (Mins)") + ylab("TimeEff (%)")  + 
-              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor()) +
+                xlab("Requested Timelimit (Mins, k = 1000)") + ylab("TimeEff (%)")  + 
+              scale_x_continuous(breaks = function(x) pretty(x, n = 8) %>% floor(), 
+                                 labels = label_number(scale = 1e-3, suffix = "k")) +
                scale_color_brewer(palette="Dark2") + 
               ggtitle(paste0("User: ", unique(subinfo$User))) + 
               coord_cartesian(clip = 'off'))
@@ -400,10 +435,10 @@ NOTE: No full table will be shown if you specified '-all FALSE' in your command!
 if (params$all == 'TRUE'){ 
   # Reordering for ease 
   total.dt <- total.dt %>%  
-    select(User, JobName, AllocTRES, CPUEff, MemEff, TimeEff, JobID, Account, Group, State, ReqCPUS, Submit.job, Submit.batch, Delay, Start, End, Elapsed, Timelimit, Cluster, Partition, SystemCPU, UserCPU, TotalCPU, TotalCPUSec, CPUTime, CPUTimeSec, MaxRSSG, MaxVMSizeG, MaxDiskReadG, MaxDiskWriteG,CPUTimeHr, CPUCompUnits, CPUCost, GPUTimeHr, GPUCompUnits, GPUCost) %>%  
+    select(User, JobName, SubmitShort, SubmitLine, AllocTRES, CPUEff, MemEff, TimeEff, JobID, Account, Group, State, ReqCPUS, Submit.job, Submit.batch, Delay, Start, End, Elapsed, Timelimit, Cluster, Partition, SystemCPU, UserCPU, TotalCPU, TotalCPUSec, CPUTime, CPUTimeSec, MaxRSSG, MaxVMSizeG, MaxDiskReadG, MaxDiskWriteG,CPUTimeHr, CPUCompUnits, CPUCost, GPUTimeHr, GPUCompUnits, GPUCost) %>%  
     mutate(across(is.numeric, round, digits = 2))
   
-  default_cols <- c('User', 'JobName', 'AllocTRES', 'CPUEff', 'MemEff', 'TimeEff', 'CPUCost', 'GPUCost')
+  default_cols <- c('User', 'JobName', 'SubmitShort', 'AllocTRES', 'CPUEff', 'MemEff', 'TimeEff', 'CPUCost', 'GPUCost')
   
   DT::datatable(total.dt, extensions = c('Buttons'), options = list(initComplete = JS(
       "function(settings, json) {",

@@ -317,7 +317,7 @@ EXAMPLE: For MISC jobs, filter by req CPUs and MISC and order by ascending CPU E
 ```{r, results = 'asis', fig.width = 10, fig.height = 8}
 if (params$all == 'TRUE'){ 
 
-  for(x in unique((by_jobname %>% filter(NumCompletedJobs > 5))$User)) {
+  for(x in unique(by_jobname$User)) {
   
     cat('\n')
   

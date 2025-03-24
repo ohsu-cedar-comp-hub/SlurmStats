@@ -2,11 +2,13 @@
 
 There are two tools that can be used separately or together to learn about the performance of specific Slurm jobs and help optimization by improving CPU, GPU, Memory and Time efficiencies. 
 
-** UPDATE : Exacloud has been discontinued. These tools can only be used to extract information about jobs ran on ARC. If you have any questions about past Exacloud jobs/usage data, please contact chaoe@ohsu.edu ** 
+** UPDATE : Exacloud has been discontinued. These tools can only be used to extract information about jobs ran on ARC. If you have any questions about past Exacloud jobs/usage data, refer to Contact section. ** 
 
 **Tool 1- Slurm Job Assessment:**
 
-This tool generates an HTML report based on Slurm accounting information, helping users understand the resource consumption of their jobs. It includes information grouped by state and user and also allows users to download their resulting data and visualizations are provided to understand which specific jobs can be improved. 
+This tool generates an HTML report based on Slurm accounting information, helping users understand the resource consumption of their jobs. It includes full Slurm job information as well as the information grouped by state and user and grouped by job. Users can filter on information and download their data if desired. Visualizations are provided to understand which specific jobs can be improved. 
+
+For any questions on how to navigate this tool and use it to understand how and which jobs need improvement, please refer to Contact section. 
 
 **Tool 2- Slurm Track Usage:**
 
@@ -17,7 +19,7 @@ This tool also generates an HTML report but focuses on creating visualizations f
 Both tools can be run on the head node of the Exacloud cluster in two primary ways:
 
 1. **Directly with Parameters**: Use command-line options to specify details for querying Slurm accounting data.
-2. **Using a Pre-generated File**: Input a file that contains Slurm accounting data.
+2. **Using a Pre-generated File**: Input a file that contains Slurm accounting data. 
 
 ## Files Included (in SlurmTools folder)
 **For Slurm Job Assessment Tool**: 
@@ -134,4 +136,5 @@ Resources about slurm usage and sacct data can be found here:
 https://slurm.schedmd.com/sacct.html
 https://ohsu-cedar-comp-hub.github.io/2023/09/19/Right-Sizing-Slurm-Jobs.html
 
+### Contact 
 If you have any questions about anything, feel free to reach out to me! (chaoe@ohsu.edu)

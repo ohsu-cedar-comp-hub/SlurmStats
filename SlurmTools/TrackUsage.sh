@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=slurm_usagetrack  # Job name
-#SBATCH --output=job_output.log      # Standard output and error log
+#SBATCH --job-name=tracking_usage  # Job name
+#SBATCH --output=%x.%j.log      # Standard output and error log
 #SBATCH --ntasks=1                   # Number of tasks
 #SBATCH --cpus-per-task=1            # Number of CPU cores per task
 #SBATCH --time=00:10:00              # Time limit

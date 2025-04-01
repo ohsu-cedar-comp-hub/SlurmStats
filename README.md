@@ -12,11 +12,12 @@ For any questions on how to navigate this tool and use it to understand how and 
 
 **Tool 2- Slurm Track Usage:**
 
-This tool also generates an HTML report but focuses on creating visualizations for tracking CPU and GPU usage over time. Visualizations are also included for data by top 8 users and data by account. The budget is also provided as reference. 
+This tool also generates an HTML report but focuses on creating visualizations for tracking CPU and GPU usage over time. The x-axis is divided by the Week, which is determined by the start date of the job(s). Visualizations are also included for data by top 8 users and data by account. The budget is also provided as reference. 
+
 
 ## Overview   
 
-Both tools can be run on the head node of the Exacloud cluster in two primary ways:
+Both tools can be run on the head node of the ARC cluster in two primary ways:
 
 1. **Directly with Parameters**: Use command-line options to specify details for querying Slurm accounting data.
 2. **Using a Pre-generated File**: Input a file that contains Slurm accounting data. 
@@ -55,7 +56,9 @@ If omitted, data for all users will be included.
 
 - **`-s <start_date>`** : Start date in the format `YYYY-MM-DD`. If omitted, start date will be 7 days before end date. 
 
-- **`-e <end_date>`** : End date in the format `YYYY-MM-DD`. If omitted, end date will be the current date. 
+- **`-e <end_date>`** : End date in the format `YYYY-MM-DD`. If omitted, end date will be the current date + 1. 
+
+**NOTE:** `sacct` includes jobs **before** the end parameter. For example, if you want to include jobs that happened on 2025-03-01, you would set end date to be 2025-03-02. 
 
 - **`-a <accounts>`** : Account(s) to filter by. Include multiple accounts by inputting comma separated values. If omitted, default will be `cedar,cedar2`. 
 
@@ -94,16 +97,22 @@ You cannot use both methods at the same time for either tool. If you provide bot
 
 * This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods for the **SlurmJobAssessment** tool.
 
-#### Running on Exacloud Compute Node
+#### Running on ARC Compute Node
 
-Because these tools are computationally light, it is recommended to run the tools on the head node of Exacloud following the usage examples above. 
-However, it can be run on a compute node using this command: 
+Because these tools are computationally light, it is recommended to run the tools on the head node of ARC following the usage examples above. 
+However, it can be run on a compute node using these commands: 
 
 ```bash 
 srun ./JobAssess.sh
 
+sbatch JobAssess.sh
+
 srun ./TrackUsage.sh
+
+sbatch TrackUsage.sh
 ```
+
+
 
 ### Troubleshooting 
 
@@ -126,6 +135,13 @@ If the report from the **Slurm Job Assessment** tool is taking too long to load,
 
 Requesting to look at a lot of data will mean a longer wait time for all information to be loaded. 
 This will usually only come up if you are looking for FY reports for all users. 
+
+
+#### Why are X Jobs Appearing? 
+Both tools use the `sacct` command, so resulting jobs who end within the timeframe are included.
+This means that jobs who overlap with the timeframe will be included. 
+
+Additionally, jobs with no specified end date (b/c they are pending or ongoing) are assigned a temporary end date using start date + elapsed. 
 
 
 ### Additional Information 

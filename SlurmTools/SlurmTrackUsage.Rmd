@@ -55,7 +55,7 @@ if (!is.na(file)){
   # if start is also NA -> use past week from today 
   
   if (is.na(end)){ 
-      end <- Sys.Date() } 
+      end <- Sys.Date() + 1 } 
   
   if (is.na(start)){
     start <- as.character(as.Date(end) - 7 ) }

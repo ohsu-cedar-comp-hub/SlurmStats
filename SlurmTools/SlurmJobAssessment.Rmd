@@ -306,8 +306,13 @@ EXAMPLE: For MISC jobs, filter by req CPUs and MISC and order by ascending CPU E
 
 ```{r, results = 'asis', fig.width = 10, fig.height = 8}
 if (params$all == 'TRUE'){ 
+   subinfo_df <- data.frame(
+        JobID = character(0),      
+        miniCategory = character(0)     
+      )
 
   for(x in unique(by_jobname$User)) {
+    
   
     cat('\n')
   
@@ -319,6 +324,7 @@ if (params$all == 'TRUE'){
     
     user_info <- total.dt %>% 
       mutate(Category = if_else(SubmitShort %in% target_jobs, SubmitShort, 'MISC'))
+    
   
     subtabs <- c('CPUEff', 'MemEff', 'TimeEff')
     
@@ -337,8 +343,11 @@ if (params$all == 'TRUE'){
          subinfo <- user_info %>% filter(Category %in% x) 
          subinfo$miniCategory <- ifelse(nchar(subinfo$Category) > 20 & length(str_split(subinfo$Category, '/')[[1]]) > 2,
                                         paste0("...", str_replace(subinfo$Category, ".*/([^/]+/[^/]+)$", "\\1")), subinfo$Category)
-
-         total.dt <- merge(total.dt, subinfo[, c("JobID", "miniCategory")], by = "JobID", all.x = TRUE)
+         
+         subinfo_df <- rbind(subinfo_df,unique(subinfo[, c("JobID", "miniCategory")])) 
+         
+         # total.dt <- merge(total.dt, subinfo[, c("JobID", "miniCategory")], by = "JobID", all.x = TRUE)
+         
 
          cat('<div class="superbigimage">')
           if (str_detect(subtab, 'CPU')){
@@ -406,11 +415,18 @@ if (params$all == 'TRUE'){
       cat('\n')
       
         }
+        
+        
   
     }
   
     
   }
+  
+  total.dt <- merge(total.dt, subinfo_df[, c("JobID", "miniCategory")], by = "JobID", all.x = TRUE)
+
+  
+  
 
 } 
 

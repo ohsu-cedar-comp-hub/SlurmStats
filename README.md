@@ -134,7 +134,9 @@ chmod 755 TrackUsage.sh
 If the report from the **Slurm Job Assessment** tool is taking too long to load, you can use `-all FALSE` to get a faster report. 
 
 Requesting to look at a lot of data will mean a longer wait time for all information to be loaded. 
-This will usually only come up if you are looking for FY reports for all users. 
+This will usually come up if you are looking for FY reports for all users. 
+
+In addition, you can limit the number of users you filter by `-u`. 
 
 
 #### Why are X Jobs Appearing? 

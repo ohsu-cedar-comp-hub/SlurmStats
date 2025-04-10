@@ -12,7 +12,10 @@ For any questions on how to navigate this tool and use it to understand how and 
 
 **Tool 2- Slurm Track Usage:**
 
-This tool also generates an HTML report but focuses on creating visualizations for tracking CPU and GPU usage over time. The x-axis is divided by the Week, which is determined by the start date of the job(s). Visualizations are also included for data by top 8 users and data by account. The budget is also provided as reference. 
+This tool also generates an HTML report but focuses on creating visualizations for tracking CPU and GPU usage over time for CEDAR/CEDAR2 accounts. 
+For the CEDAR condo, only CPU tracking is displayed. 
+
+ The x-axis is divided by the Week, which is determined by the start date of the job(s). Visualizations are also included for data by top 8 users and data by account. The budget is also provided as reference. 
 
 
 ## Overview   
@@ -60,7 +63,7 @@ If omitted, data for all users will be included.
 
 **NOTE:** `sacct` includes jobs **before** the end parameter. For example, if you want to include jobs that happened on 2025-03-01, you would set end date to be 2025-03-02. 
 
-- **`-a <accounts>`** : Account(s) to filter by. Include multiple accounts by inputting comma separated values. If omitted, default will be `cedar,cedar2`. 
+- **`-a <accounts>`** : Account(s) to filter by. Include multiple accounts by inputting comma separated values. If omitted, default will be `cedar,cedar2, cedar-condo`. 
 
 - **`-p <partition>`** : Partition(s) to filter by. Include multiple partitions by inputting comma separated values. If omitted, default will be all partitions. 
 
@@ -68,7 +71,7 @@ If omitted, data for all users will be included.
 
 Both tools have the same parameters **EXCEPT** `-all <all_info>` is **NOT** in the Slurm Track Usage tool! 
 
-For example, to summarize all job information and track usage for user chaoe from 2024-07-01 to 2024-07-10 for accounts cedar and cedar2:
+For example, to summarize all job information and track usage for user chaoe from 2024-07-01 to 2024-07-10 for accounts cedar, cedar2 and cedar-condo:
 
 ```bash
 ./JobAssess.sh -u chaoe -s 2024-07-01 -e 2024-07-10
@@ -90,7 +93,7 @@ If you have a file already generated from `sacct`, you can input the file direct
 For example, an acceptable file would be generated like this : 
 
 ```bash 
-sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A cedar,cedar2 --starttime=2023-07-01 --endtime=2024-06-30 > data.txt
+sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A cedar,cedar2,cedar-condo --starttime=2023-07-01 --endtime=2024-06-30 > data.txt
 ```
 
 You cannot use both methods at the same time for either tool. If you provide both a file and other parameters into the tool, the tool will ignore your extra parameters and use only the file. 

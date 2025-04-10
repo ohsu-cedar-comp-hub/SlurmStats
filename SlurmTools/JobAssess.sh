@@ -25,7 +25,7 @@ START=""
 END=""
 FILE=""
 PARTITION=""
-ACCT="cedar,cedar2"
+ACCT="cedar,cedar2,cedar-condo"
 ALL="TRUE"
 
 while [[ $# -gt 0 ]]; do

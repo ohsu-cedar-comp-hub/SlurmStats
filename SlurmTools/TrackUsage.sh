@@ -24,7 +24,7 @@ USER=""
 START=""
 END=""
 FILE=""
-ACCT="cedar,cedar2"
+ACCT="cedar,cedar2,cedar-condo"
 PARTITION=""
 
 while getopts ":f:u:s:e:a:p:" opt; 

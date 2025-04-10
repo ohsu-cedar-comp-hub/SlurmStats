@@ -7,7 +7,7 @@ output:
 date: "`r Sys.Date()`"
 params: 
   user: NA
-  account: cedar,cedar2
+  account: cedar,cedar2,cedar-condo
   start: NA
   end: NA
   file: NA
@@ -35,12 +35,12 @@ unlockBinding("params", env = .GlobalEnv)
 
 params <- lapply(params, function(x) { if (x == 'NA' | x == '') NA else x })
 
-file <- params$file
+file <- params$file 
 user <- params$user 
 start <- params$start 
 end <- params$end
+partition <- params$partition
 account <- params$account
-partition <- params$partition 
 output_file <- paste0("clean", file)
 
 if (!is.na(file)){
@@ -48,32 +48,43 @@ if (!is.na(file)){
   lines <- readLines(file)
   writeLines(lines[nzchar(trimws(lines))], output_file)
   data <- fread(output_file)
-} else {
-
+} else { 
   print("Pulling sacct data..")
   # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
   
-  if (is.na(end)){ 
-      end <- Sys.Date() + 1 } 
-  
   if (is.na(start)){
     start <- as.character(as.Date(end) - 7 ) }
   
-  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s", account, start, end)
+  sacct_command <- sprintf("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,SubmitLine,TimelimitRaw --parsable2 -a -A %s --starttime=%s", account, start)
   
-  if (!is.na(user)){ 
+  if (!is.na(end)){ 
+    sacct_command <- paste(sacct_command, sprintf("--endtime=%s", end))
+  }
+  
+  else { 
+    end <- Sys.Date()
+    }
+
+   if (!is.na(user)){ 
     sacct_command <- paste(sacct_command, sprintf("-u %s", user))
   }
   
   print("...from ARC")
   temp_file1 <- tempfile()
-  system(paste(sacct_command, ">", temp_file1), wait = TRUE)
+  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  system(paste(ssh_command, ">", output_file), wait = TRUE)
   
-  data <- fread(temp_file1)
+  #print("...from Exacloud")
+  #temp_file2 <- tempfile()
+  #ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
+  #system(paste(ssh_command, ">", temp_file2), wait = TRUE)
+  #system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
+  data <- fread(output_file)
   
   print(sacct_command)
-} 
+  
+}
 
 output <- sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s", file, user, account,start, end)
 
@@ -82,15 +93,15 @@ if (!is.na(partition)){
   targets <- data %>% 
     filter(sapply(Partition, function(x) any(grepl(partitions, x)))) %>% 
     pull(JobIDRaw)
-  
   data <- data %>% 
-   filter(as.character(sub("\\..*", "", JobIDRaw)) %in% targets)
+    filter(as.character(sub("\\..*", "", JobIDRaw)) %in% as.character(targets))
     
   output <- paste(output, sprintf(", Partition: %s", partition))
   
 }
 
 print(output)
+
 
 ```
 
@@ -199,9 +210,7 @@ total.dt <- merge(x = cpu_only, y = gpu_only %>%  select(JobID, ReqGPUS, GPUTime
 
 ```
 
-```{r}
-print(paste0("Number of Jobs : ", nrow(total.dt)))
-```
+
 
 ```{r}
 
@@ -215,27 +224,45 @@ total.dt <- total.dt %>%
   mutate(End = as.Date(End)) %>% 
   mutate(Week = as.Date(cut.Date(End, breaks = '1 week')))
 
+print(paste0("Number of Total Jobs : ", nrow(total.dt)))
+
 total.dt <- as.data.frame(complete(total.dt,Week,User,fill=list(CPUTimeSec = 0, GPUTimeSec = 0)))
 
-total.dt <- total.dt %>% 
+cedar_condo <- total.dt %>% filter(Account == 'cedar-condo')
+cedar_condo <- as.data.frame(complete(cedar_condo,Week,User,fill=list(CPUTimeSec = 0, GPUTimeSec = 0)))
+
+cedar_data <- total.dt %>% filter(Account == 'cedar' | Account == 'cedar2')
+cedar_data <- as.data.frame(complete(cedar_data,Week,User,fill=list(CPUTimeSec = 0, GPUTimeSec = 0)))
+
+print(paste0("Number of Jobs on the CEDAR condo : ", nrow(cedar_condo)))
+
+#total.dt <- total.dt %>% 
+  #group_by(Week, User, Account) %>%  
+  #summarise(CPUTimeHr = sum(CPUTimeSec / 3600 , na.rm = TRUE), GPUTimeHr = sum(GPUTimeSec / 3600, na.rm = TRUE)) 
+
+  
+  
+```
+```{r}
+cedar_data <- cedar_data %>% 
   group_by(Week, User, Account) %>%  
   summarise(CPUTimeHr = sum(CPUTimeSec / 3600 , na.rm = TRUE), GPUTimeHr = sum(GPUTimeSec / 3600, na.rm = TRUE)) 
 
-  
-  
+
+cedar_condo <- cedar_condo %>% 
+  group_by(Week, User, Account) %>%  
+  summarise(CPUTimeHr = sum(CPUTimeSec / 3600 , na.rm = TRUE), GPUTimeHr = sum(GPUTimeSec / 3600, na.rm = TRUE)) 
+
 ```
 
 
 
 ## Track Usage {.tabset}
 
-CPU and GPU Usage is tracked using several plots: 
-- All Data
-- All Data w/ Budget 
-- All by Top 8 Users 
-- All by Account 
+CPU and GPU Usage is tracked for jobs we are charged for aka jobs in CEDAR/CEDAR2. 
+CPU is tracked for jobs for the CEDAR condo. 
 
-.
+
 
 <style>
   .superbigimage{
@@ -257,7 +284,7 @@ CPU and GPU Usage is tracked using several plots:
 ```{r}
 
 cumul_budget <- days_range / 365 * 12
-budget <- data.frame(Week = unique(total.dt$Week), CPUTimeHr = rep(165000, length(unique(total.dt$Week))), GPUTimeHr = rep(1500, length(unique(total.dt$Week))))
+budget <- data.frame(Week = unique(cedar_data$Week), CPUTimeHr = rep(165000, length(unique(cedar_data$Week))), GPUTimeHr = rep(1500, length(unique(cedar_data$Week))))
 
 budget <- budget %>% 
   mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>% 
@@ -273,6 +300,7 @@ make_plot <- function(data, type, color, show = FALSE){
   }
 
   if (type == 'CPU'){
+   
   p1 <- ggplot(data = data, aes_string(x = 'Week', y = 'CPUTimeHr', color = color)) +
         geom_line(size = 1.5) + 
         theme_minimal() + 
@@ -307,6 +335,43 @@ make_plot <- function(data, type, color, show = FALSE){
   
   
   }
+  
+  
+  else if (type == 'Condo'){
+  p1 <- ggplot(data = data, aes_string(x = 'Week', y = 'CPUTimeHr', color = color)) +
+        geom_line(size = 1.5) + 
+        theme_minimal() + 
+        theme(panel.background = element_blank(), 
+              legend.title = element_blank(), 
+              plot.title = element_text(size = 15, face = 'bold'), 
+              axis.line = element_line(colour = 'black'), 
+              axis.text = element_text(size = 12), 
+              axis.title = element_text(size = 10, face = 'bold'))   +
+         ylab("CPU Time (Hours)") + xlab("") +
+        coord_cartesian(clip = 'off') + 
+          scale_color_brewer(palette = "Set1") + 
+          scale_y_continuous(labels = label_comma()) + 
+    ggtitle(paste0("Total CPU Hours: ", round(sum(data$CPUTimeHr, na.rm = TRUE), 2)))
+  
+  
+  p2 <- ggplot(data = data, aes_string(x = 'Week', y = 'CumulCPUTimeHr', color = color)) +
+        geom_line(size = 1.5)+ 
+        theme_minimal() + 
+        theme(panel.background = element_blank(), 
+              legend.title = element_blank(), 
+              plot.title = element_text(size = 15, face = 'bold'), 
+              axis.line = element_line(colour = 'black'), 
+              axis.text = element_text(size = 12), 
+              axis.title = element_text(size = 10, face = 'bold'))   +
+         ylab("CPU Time (Hours)") + xlab("") +
+        coord_cartesian(clip = 'off') + 
+          scale_color_brewer(palette = "Set1")  + 
+          scale_y_continuous(labels = label_comma()) + 
+    ggtitle(paste0("Total CPU Hours: ", round(sum(data$CPUTimeHr, na.rm = TRUE), 2)), subtitle = paste0('Cumultative Usage'))
+  
+  
+  }
+  
   
   else {
     p1 <- ggplot(data = data, aes_string(x = 'Week', y = 'GPUTimeHr', color = color)) +
@@ -367,11 +432,13 @@ make_plot <- function(data, type, color, show = FALSE){
 ```
 
 
+
 ```{r, results = 'asis', fig.width = 15, fig.height = 8}
 
-main_tabs <- c('All Data', 'All Data w/ Budget', 'All by User - Top 8', 'All by Account')
+main_tabs <- c('cedar/cedar2', 'cedar/cedar2 w/ budget', 'cedar/cedar2 - Top 8 Users', 'cedar vs. cedar2', 'cedar condo')
 
 sub_tabs <- c('CPU', 'GPU') 
+condo_tabs <- c('Top 8 Users', 'All')
 
 for(x in main_tabs) {
 
@@ -381,8 +448,55 @@ for(x in main_tabs) {
 
   cat('\n')
   
-  if (x == 'All by User - Top 8'){ 
-    data <- total.dt %>%  group_by(Week, User) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>%  group_by(User) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
+  if (x == 'cedar condo'){ 
+   
+    for(y in condo_tabs) {
+   
+      cat('\n')
+  
+      cat('#### ', y, '   \n')
+  
+      cat('\n')
+       
+      if (y == 'Top 8 Users'){ 
+        data <- cedar_condo %>%  group_by(Week, User) %>% summarise(CPUTimeHr = sum(CPUTimeHr)) %>%  group_by(User) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr))
+        data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, User = unique(data$User),  CumulCPUTimeHr = 0, CPUTimeHr = NA)))
+        
+        data <- data %>%  
+      mutate(CPUTotal = sum(CPUTimeHr, na.rm = TRUE)) 
+        
+        data <- data %>% filter(CPUTotal !=0) %>% arrange(desc(CPUTotal)) 
+        top_8 <- unique((data %>%  filter(CPUTotal !=0) %>% arrange(desc(CPUTotal)) )$User)[1:8] 
+    
+       condo_user <- make_plot(data %>% filter(User %in% top_8), 'Condo', 'User') 
+       print(condo_user[[1]])
+       print(condo_user[[2]])
+        
+        cat('\n')
+        
+      }
+      
+      else { 
+        data <- cedar_condo %>%  group_by(Week) %>% summarise(CPUTimeHr = sum(CPUTimeHr)) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) 
+        data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, CumulCPUTimeHr = 0, CPUTimeHr = NA)))
+        data <- data %>% 
+     mutate(CPUTotal = sum(CPUTimeHr, na.rm = TRUE))
+        condo_all <- make_plot(data, 'Condo', NA) 
+       print(condo_all[[1]])
+       print(condo_all[[2]])
+       
+         cat('\n')
+      
+        
+      }
+      
+      
+    }
+    
+  } 
+  
+  else if (x == 'cedar/cedar2 - Top 8 Users'){ 
+    data <- cedar_data %>%  group_by(Week, User) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>%  group_by(User) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
     data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, User = unique(data$User),  CumulCPUTimeHr = 0, CumulGPUTimeHr = 0, CPUTimeHr = NA, GPUTimeHr = NA)))
     
     data <- data %>%  
@@ -426,8 +540,8 @@ for(x in main_tabs) {
   
 else { 
     
-    if (x == 'All by Account'){
-   data <- total.dt %>%  group_by(Week, Account) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) 
+    if (x == 'cedar vs. cedar2'){
+   data <- cedar_data %>%  group_by(Week, Account) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) 
    
    data <- merge(data, expand.grid(Week = unique(data$Week), Account =unique(data$Account)[!is.na(unique(data$Account))]), by = c('Week', 'Account'), all.y = TRUE)
    
@@ -442,7 +556,7 @@ else {
  }
   
  else { 
-   data <- total.dt %>%  group_by(Week) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
+   data <- cedar_data %>%  group_by(Week) %>% summarise(CPUTimeHr = sum(CPUTimeHr), GPUTimeHr = sum(GPUTimeHr)) %>% mutate(CumulCPUTimeHr = cumsum(CPUTimeHr)) %>%  mutate(CumulGPUTimeHr = cumsum(GPUTimeHr)) 
    
    data <- rbind(data, data.frame(expand.grid(Week = min(data$Week) - 6, CumulCPUTimeHr = 0, CumulGPUTimeHr = 0, CPUTimeHr = NA, GPUTimeHr = NA)))
    
@@ -463,7 +577,7 @@ else {
     if (y == 'CPU'){ 
         data <- data %>% filter(CPUTotal !=0)
         
-        if (x == 'All by Account'){
+        if (x == 'cedar vs. cedar2'){
           accCPU <- make_plot(data, 'CPU', 'Account')
           
           print(accCPU[[1]])
@@ -474,12 +588,10 @@ else {
       } 
           
         
-        else if (x == 'All Data') { 
+        else if (x == 'cedar/cedar2') { 
           allCPU <- make_plot(data, 'CPU', NA)
           
           print(allCPU[[1]]) 
-       
-
           print(allCPU[[2]])
       
           cat('\n')
@@ -504,7 +616,7 @@ else {
     else { 
       data <- data %>%  filter(GPUTotal !=0)
       
-      if (x == 'All by Account'){
+      if (x == 'cedar vs. cedar2'){
        accGPU <- make_plot(data, 'GPU', 'Account')
 
           print(accGPU[[1]])
@@ -514,7 +626,7 @@ else {
        cat('\n')
       }
       
-      else if (x == 'All Data'){ 
+      else if (x == 'cedar/cedar2'){ 
         allGPU <- make_plot(data, 'GPU', NA)
           
         print(allGPU[[1]]) 

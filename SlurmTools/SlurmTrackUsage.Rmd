@@ -200,7 +200,7 @@ cpu_only <- cpu_only %>%
   mutate(State = if_else(str_detect(State, 'CANCELLED'), 'CANCELLED', State))
 
 gpu_only <- cpu_only %>% 
-  filter(Partition == 'gpu') %>% 
+  filter(str_detect(AllocTRES, 'gpu')) %>% 
   mutate(ReqGPUS = as.numeric(str_extract(AllocTRES, "(?<=gpu=).*?(?=,|$)"))) %>%  
   mutate(GPUTimeSec = CPUTimeSec/ReqCPUS * ReqGPUS) 
 

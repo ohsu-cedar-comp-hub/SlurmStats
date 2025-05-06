@@ -42,6 +42,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$FILE" ]]; then
+  read -p "Please enter your ARC username (ex. x@ohsu.edu, enter x): " NAME
+fi
 
 echo "File: $FILE" 
 echo "User: $USER" 
@@ -50,6 +53,10 @@ echo "End: $END"
 echo "Partition: $PARTITION"
 echo "Acct: $ACCT"  
 echo "All: $ALL"
+echo "Your Username: $NAME" 
+
+
+
 
 # Run the RMarkdown file with parameters
-Rscript -e "rmarkdown::render('SlurmJobAssessment.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT', all = '$ALL'))"
+Rscript -e "rmarkdown::render('SlurmJobAssessment.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT', all = '$ALL', name = '$NAME'))"

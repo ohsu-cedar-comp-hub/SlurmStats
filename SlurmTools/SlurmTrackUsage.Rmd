@@ -12,6 +12,7 @@ params:
   end: NA
   file: NA
   partition: NA
+  name: NA
   
 ---
 
@@ -41,15 +42,29 @@ start <- params$start
 end <- params$end
 partition <- params$partition
 account <- params$account
-output_file <- paste0("clean", file)
+name <- params$name 
+
+
 
 if (!is.na(file)){
   print("Using file provided..")
   lines <- readLines(file)
   writeLines(lines[nzchar(trimws(lines))], output_file)
   data <- fread(output_file)
+  output_file <- file.path(dirname(file), paste0("clean", basename(file)))
+
 } else { 
+  if (is.na(name)){
+  print("No username entered. Can't access slurm assessment information.")
+
+  knit_exit()}
+
+  output_file <- paste0("clean", file)
+
+
+
   print("Pulling sacct data..")
+  
   # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
   
@@ -72,7 +87,7 @@ if (!is.na(file)){
   
   print("...from ARC")
   temp_file1 <- tempfile()
-  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  ssh_command <- sprintf("ssh %s@%s '%s'", name, 'arc.ohsu.edu', sacct_command)
   system(paste(ssh_command, ">", output_file), wait = TRUE)
   
   #print("...from Exacloud")

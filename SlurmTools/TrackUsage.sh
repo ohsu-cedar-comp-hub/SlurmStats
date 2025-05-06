@@ -5,6 +5,8 @@
 #SBATCH --cpus-per-task=1            # Number of CPU cores per task
 #SBATCH --time=00:10:00              # Time limit
 #SBATCH --mem=8G                     # Memory allocation
+#SBATCH --nodelist=cnode-11-4
+#SBATCH -p batch
 
 ENV_NAME="slurm_statsenv"
 
@@ -46,13 +48,20 @@ do
 done
 shift $((OPTIND -1))
 
+if [[ -z "$FILE" ]]; then
+  read -p "Please enter your ARC username (ex. x@ohsu.edu, enter x): " NAME
+fi
+
+
+
 echo "File: $FILE" 
 echo "User: $USER" 
 echo "Start: $START"
 echo "End: $END" 
 echo "Partition: $PARTITION" 
 echo "Acct: $ACCT"  
+echo "Your Username: $NAME" 
 
 
 # Run the RMarkdown file with parameters
-Rscript -e "rmarkdown::render('SlurmTrackUsage.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT'))"
+Rscript -e "rmarkdown::render('SlurmTrackUsage.Rmd', params = list(user = '$USER', start = '$START', end = '$END', file = '$FILE', partition = '$PARTITION', account = '$ACCT', name = '$NAME'))"

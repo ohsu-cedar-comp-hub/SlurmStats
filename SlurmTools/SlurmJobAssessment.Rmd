@@ -13,6 +13,7 @@ params:
   file: NA
   partition: NA
   all: 'TRUE' 
+  name: NA
 ---
 
 ```{r setup, include=FALSE}
@@ -44,14 +45,23 @@ end <- params$end
 partition <- params$partition
 account <- params$account
 all <- params$all
-output_file <- paste0("clean", file)
+name <- params$name 
 
 if (!is.na(file)){
+  output_file <- file.path(dirname(file), paste0("clean", basename(file)))
   print("Using file provided..")
   lines <- readLines(file)
   writeLines(lines[nzchar(trimws(lines))], output_file)
   data <- fread(output_file)
 } else { 
+  output_file <- paste0("clean", file)
+    if (is.na(name)){
+    print("No username entered. Can't access slurm assessment information.")
+
+    knit_exit()
+
+
+  }
   print("Pulling sacct data..")
   # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
@@ -75,14 +85,10 @@ if (!is.na(file)){
   
   print("...from ARC")
   temp_file1 <- tempfile()
-  ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'arc.ohsu.edu', sacct_command)
+  ssh_command <- sprintf("ssh %s@%s '%s'", name, 'arc.ohsu.edu', sacct_command)
   system(paste(ssh_command, ">", output_file), wait = TRUE)
   
-  #print("...from Exacloud")
-  #temp_file2 <- tempfile()
-  #ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
-  #system(paste(ssh_command, ">", temp_file2), wait = TRUE)
-  #system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
+ 
   data <- fread(output_file)
   
   print(sacct_command)

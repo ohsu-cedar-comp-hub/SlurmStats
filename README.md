@@ -100,6 +100,9 @@ You cannot use both methods at the same time for either tool. If you provide bot
 
 * This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods for the **SlurmJobAssessment** tool.
 
+### After Launch of Tool 
+You will be prompted to enter in your ARC username. Your ARC username is the X in X@ohsu.edu. 
+
 #### Running on ARC Compute Node
 
 Because these tools are computationally light, it is recommended to run the tools on the head node of ARC following the usage examples above. 

@@ -79,6 +79,8 @@ For example, to summarize all job information and track usage for user chaoe fro
 ./TrackUsage.sh -u chaoe -s 2024-07-01 -e 2024-07-10
 ```
 
+After launching the tool, you will be prompted to enter in your ARC username. Your ARC username is the X in X@ohsu.edu. 
+
 
 ### 2. Using a Pre-generated File 
 If you have a file already generated from `sacct`, you can input the file directly with the following command: 
@@ -100,8 +102,6 @@ You cannot use both methods at the same time for either tool. If you provide bot
 
 * This doesn't apply for `-all <all_info>`. The -all parameter can be used for either methods for the **SlurmJobAssessment** tool.
 
-### After Launch of Tool 
-You will be prompted to enter in your ARC username. Your ARC username is the X in X@ohsu.edu. 
 
 #### Running on ARC Compute Node
 

@@ -7,7 +7,7 @@ output:
 date: "`r Sys.Date()`"
 params: 
   user: NA
-  account: cedar,cedar2,cedar-condo
+  account: NA
   start: NA
   end: NA
   file: NA
@@ -42,29 +42,31 @@ start <- params$start
 end <- params$end
 partition <- params$partition
 account <- params$account
-name <- params$name 
-
+all <- params$all
+name <- params$name
 
 
 if (!is.na(file)){
+  output_file <- file.path(dirname(file), paste0("clean", basename(file)))
   print("Using file provided..")
   lines <- readLines(file)
   writeLines(lines[nzchar(trimws(lines))], output_file)
-  data <- fread(output_file)
-  output_file <- file.path(dirname(file), paste0("clean", basename(file)))
+  data <- fread(output_file)}
 
-} else { 
-  if (is.na(name)){
+```
+
+```{r}
+if(is.na(name) & is.na(file)){
   print("No username entered. Can't access slurm assessment information.")
+  knit_exit()
+}
+```
 
-  knit_exit()}
-
+```{r}
+if (is.na(file)) { 
   output_file <- paste0("clean", file)
-
-
-
-  print("Pulling sacct data..")
   
+  print("Pulling sacct data..")
   # if end is NA -> use today's date -> don't need to specify just leave end date blank 
   # if start is also NA -> use past week from today 
   
@@ -78,7 +80,7 @@ if (!is.na(file)){
   }
   
   else { 
-    end <- Sys.Date()
+    end <- Sys.Date() 
     }
 
    if (!is.na(user)){ 
@@ -90,18 +92,13 @@ if (!is.na(file)){
   ssh_command <- sprintf("ssh %s@%s '%s'", name, 'arc.ohsu.edu', sacct_command)
   system(paste(ssh_command, ">", output_file), wait = TRUE)
   
-  #print("...from Exacloud")
-  #temp_file2 <- tempfile()
-  #ssh_command <- sprintf("ssh %s@%s '%s'", 'chaoe', 'exahead1.ohsu.edu', sacct_command)
-  #system(paste(ssh_command, ">", temp_file2), wait = TRUE)
-  #system(paste("cat", temp_file1, ">", output_file, "&&", "tail -n +2", temp_file2, ">>", output_file))
   data <- fread(output_file)
   
   print(sacct_command)
   
 }
 
-output <- sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s", file, user, account,start, end)
+output <- sprintf("File: %s, User: %s, Account: %s, Start: %s, End: %s, all: %s", file, user, account,start, end, all)
 
 if (!is.na(partition)){ 
   partitions <- unlist(strsplit(partition, ","))
@@ -119,6 +116,7 @@ print(output)
 
 
 ```
+
 
 ```{r}
 if (nrow(data) == 0){ 
@@ -175,6 +173,15 @@ data[, CPUTimeSec := calcSeconds(CPUTime)]
 
 ```
 
+```{r}
+required_cols <- c("JobIDRaw","JobName","User","Group","Account","State","Submit","Start","End","Cluster","Partition","AllocNodes","AllocTRES","AllocCPUS","ReqCPUS","AveCPU","TotalCPU","CPUTime","UserCPU","SystemCPU","Elapsed","Timelimit","ReqMem","MaxRSS","MaxVMSize","MaxDiskWrite","MaxDiskRead","CPUTimeRAW","ElapsedRaw","SubmitLine","TimelimitRaw")
+if (!(all(required_cols %in% colnames(data)))) {
+  print("Data provided doesn't contain all needed columns. Modify and run the below sacct command.")
+  print("sacct --units=G --format=JobIdRaw,JobName,User,Group,Account,State,Submit,Start,End,Cluster,Partition,AllocNodes,AllocTRES,AllocCPUS,ReqCPUs,AveCPU,TotalCPU,CPUTime,UserCPU,SystemCPU,Elapsed,Timelimit,ReqMem,MaxRSS,MaxVMSize,MaxDiskWrite,MaxDiskRead,CPUTimeRaw,ElapsedRaw,SubmitLine,TimelimitRaw --parsable2 -a -A %s --starttime=%s --endtime=%s -u %s")
+  knit_exit()
+  
+}
+```
 
 ```{r}
 
